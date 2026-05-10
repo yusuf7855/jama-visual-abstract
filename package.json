@@ -1,0 +1,61 @@
+{
+  "name": "jama-visual-abstract",
+  "version": "0.1.0",
+  "description": "Structured JSON generator for JAMA Visual Abstract template from clinical study data",
+  "main": "dist/index.cjs.js",
+  "module": "dist/index.esm.js",
+  "browser": "dist/index.browser.js",
+  "exports": {
+    ".": {
+      "browser": "./dist/index.browser.js",
+      "import": "./dist/index.esm.js",
+      "require": "./dist/index.cjs.js"
+    }
+  },
+  "bin": {
+    "jama-va": "./src/cli.js"
+  },
+  "scripts": {
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "test:tokenizer": "jest test/tokenizer --verbose",
+    "test:blocks": "jest test/blocks --verbose",
+    "test:integration": "jest test/integration --verbose",
+    "build": "node build.js",
+    "build:watch": "node build.js --watch",
+    "dev": "concurrently \"npm run test:watch\" \"npm run build:watch\"",
+    "validate:bundle": "jest test/integration/browser-bundle.test.js --verbose",
+    "lint:no-node-api": "node scripts/check-node-api.js",
+    "render": "node template/generate-html.js"
+  },
+  "dependencies": {
+    "ajv": "^8.17.1",
+    "commander": "^12.1.0"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "esbuild": "^0.25.0",
+    "jest": "^29.7.0",
+    "pdf-parse": "^2.4.5"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "testMatch": [
+      "**/__tests__/**/*.js",
+      "**/*.test.js"
+    ],
+    "collectCoverageFrom": [
+      "src/**/*.js",
+      "!src/cli.js",
+      "!src/io.js"
+    ],
+    "coverageThreshold": {
+      "global": {
+        "branches": 80,
+        "functions": 90,
+        "lines": 90
+      }
+    }
+  }
+}

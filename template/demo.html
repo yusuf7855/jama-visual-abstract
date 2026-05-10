@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>JAMA VA — Demo (Filled)</title>
+</head>
+<body style="margin:0">
+<script>
+// ── Bu script'i jama-va.html'e JAMA_DATA olarak inject ediyoruz ─────────
+// Gerçek kullanımda: npm paketin generate() çıktısı buraya gelir.
+
+const JAMA_DATA = {
+  journal: "JAMA Dermatology",
+  study_type: "RCT",
+  title_raw: "Upadacitinib vs Dupilumab in Adults With Moderate-to-Severe Atopic Dermatitis",
+
+  population: {
+    n_male: 375,
+    n_female: 298,
+    description: "Adults aged 18-75 y with atopic dermatitis symptoms for ≥3 y and an Eczema Area and Severity Index (EASI) ≥16",
+    mean_age: "36.3 (14.1) y (range, 18-76 y)"
+  },
+
+  intervention: {
+    arms: [
+      {
+        n: 331,
+        label: "Dupilumab",
+        description: "Subcutaneous dupilumab, 300 mg, every other week"
+      },
+      {
+        n: 342,
+        label: "Upadacitinib",
+        description: "Oral tablet of upadacitinib, 30 mg, once daily"
+      }
+    ]
+  },
+
+  settings: {
+    description: "126 Centers in 22 countries"
+  },
+
+  primary_outcome: {
+    description: "Achievement of 75% improvement in EASI (EASI75) at week 16"
+  },
+
+  findings: {
+    summary: "Proportion of patients achieving EASI75 at week 16 was significantly greater in upadacitinib group than in dupilumab group, with adjusted difference of 9.7% (95% CI, 2.6%-16.7%)",
+    p_value: "P=.007",
+    results: [
+      { arm: "Proportion of patients achieving EASI75 at week 16 with dupilumab",    value: "62.6% (207 of 331)" },
+      { arm: "Proportion of patients achieving EASI75 at week 16 with upadacitinib", value: "72.4% (248 of 342)" }
+    ],
+    chart_data: {
+      x_label: "Week",
+      y_label: "Proportion of patients, %",
+      labels: [0, 1, 2, 4, 8, 12, 16],
+      datasets: [
+        { label: "Upadacitinib", n: 342, data: [3, 18, 70, 72, 79, 77, 72] },
+        { label: "Dupilumab",    n: 331, data: [2, 10, 46, 40, 57, 60, 63] }
+      ]
+    }
+  },
+
+  citation: {
+    authors: "Blauvelt A, Teixeira HD, Simpson EL, et al.",
+    title: "Efficacy and safety of upadacitinib vs dupilumab in adults with moderate-to-severe atopic dermatitis: a randomized clinical trial.",
+    journal: "JAMA Dermatol.",
+    published: "Published online August 4, 2021.",
+    doi: "doi:10.1001/jamadermatol.2021.3023"
+  }
+};
+</script>
+
+<!-- jama-va.html'in içeriğini inline embed ederek tek dosyada gösteriyoruz -->
+<script>
+// Template HTML'i iframe yerine doğrudan yükle
+fetch('jama-va.html')
+  .then(r => r.text())
+  .then(html => {
+    // JAMA_DATA'yı inject et
+    const injected = html.replace(
+      'if (typeof JAMA_DATA !== \'undefined\' && JAMA_DATA) {',
+      'const JAMA_DATA = ' + JSON.stringify(JAMA_DATA) + ';\n  if (JAMA_DATA) {'
+    );
+    document.open();
+    document.write(injected);
+    document.close();
+  });
+</script>
+</body>
+</html>

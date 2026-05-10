@@ -1,0 +1,2540 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<title>JAMA Visual Abstract Generator</title>
+
+<!-- PDF.js — yerel kopya, offline çalışır -->
+<script src="lib/pdf.min.js"></script>
+
+<!-- Paket IIFE build — window.JamaVA -->
+<script>
+// Cache-busting: dinamik olarak IIFE yükle
+(function() {
+  var s = document.createElement('script');
+  s.src = '../dist/index.iife.js?t=' + Date.now();
+  document.head.appendChild(s);
+})();
+</script>
+
+<!-- Export kütüphaneleri: html2canvas + jsPDF -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+  --green:   #1e5c34;
+  --cell-bg: #e8eddf;
+  --ph:      #b0b8a8;
+  --font:    'Helvetica Neue', Helvetica, Arial, sans-serif;
+}
+
+body {
+  font-family: var(--font);
+  background: #c8c8c8;
+  min-height: 100vh;
+  padding: 24px;
+}
+
+/* ── UPLOAD PANEL ── */
+#upload-panel {
+  max-width: 920px;
+  margin: 0 auto 24px;
+  background: #fff;
+  border-radius: 6px;
+  padding: 24px 28px;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.18);
+}
+
+#upload-panel h1 {
+  font-size: 18px;
+  color: var(--green);
+  font-weight: 800;
+  margin-bottom: 4px;
+}
+#upload-panel p.sub {
+  font-size: 12px;
+  color: #666;
+  margin-bottom: 18px;
+}
+
+/* Tabs */
+.input-tabs { display: flex; gap: 0; margin-bottom: 14px; border-bottom: 2px solid #c8d8c8; }
+.tab-btn {
+  padding: 7px 20px; background: none; border: none; cursor: pointer;
+  font-size: 12px; font-weight: 700; color: #888; border-bottom: 2px solid transparent;
+  margin-bottom: -2px; transition: color 0.15s;
+}
+.tab-btn.active { color: var(--green); border-bottom-color: var(--green); }
+
+/* Paste mode */
+#tab-paste { display: none; }
+#abstract-input {
+  width: 100%; min-height: 130px; font-size: 11.5px; font-family: var(--font);
+  border: 1.5px solid #c0d0c0; border-radius: 5px; padding: 10px 12px;
+  resize: vertical; outline: none; color: #333; line-height: 1.5;
+}
+#abstract-input:focus { border-color: var(--green); }
+#paste-btn {
+  margin-top: 10px; padding: 8px 22px; background: var(--green); color: #fff;
+  border: none; border-radius: 4px; font-size: 13px; font-weight: 700;
+  cursor: pointer; transition: opacity 0.15s;
+}
+#paste-btn:hover { opacity: 0.88; }
+
+/* Export butonları */
+.export-panel {
+  display: none;
+  margin-top: 16px;
+  padding: 12px 16px;
+  background: #f8faf8;
+  border-radius: 6px;
+  border: 1px solid #c0d0c0;
+}
+.export-panel.visible { display: block; }
+.export-panel h3 {
+  font-size: 13px;
+  color: var(--green);
+  margin-bottom: 10px;
+  font-weight: 700;
+}
+.export-buttons {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.export-btn {
+  padding: 8px 18px;
+  background: var(--green);
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s, transform 0.1s;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.export-btn:hover { opacity: 0.9; transform: translateY(-1px); }
+.export-btn:active { transform: translateY(0); }
+.export-btn.secondary {
+  background: #fff;
+  color: var(--green);
+  border: 2px solid var(--green);
+}
+.export-btn svg { width: 16px; height: 16px; }
+.export-status {
+  margin-top: 8px;
+  font-size: 11px;
+  color: #666;
+}
+
+/* PDF text preview */
+#pdf-text-wrap {
+  display: none; margin-top: 8px;
+  border: 1px solid #c0d0c0; border-radius: 4px;
+}
+#pdf-text-toggle {
+  width: 100%; padding: 5px 12px; text-align: left;
+  background: #f0f4f0; border: none; cursor: pointer;
+  font-size: 11px; color: #444; font-weight: 600;
+}
+#pdf-raw-text {
+  display: none; max-height: 160px; overflow: auto;
+  padding: 8px 12px; font-size: 10px; font-family: monospace;
+  color: #333; white-space: pre-wrap; word-break: break-all;
+  background: #fafafa;
+}
+
+/* Drop zone */
+#drop-zone {
+  border: 2.5px dashed #b0c8b0;
+  border-radius: 6px;
+  background: #f4f8f4;
+  padding: 36px 24px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+  position: relative;
+}
+#drop-zone.drag-over {
+  border-color: var(--green);
+  background: #e8f0e8;
+}
+#drop-zone input[type="file"] {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+  width: 100%;
+  height: 100%;
+}
+#drop-zone .dz-icon {
+  font-size: 36px;
+  margin-bottom: 10px;
+  color: var(--green);
+}
+#drop-zone .dz-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #333;
+  margin-bottom: 4px;
+}
+#drop-zone .dz-hint {
+  font-size: 11px;
+  color: #888;
+}
+
+/* Status bar */
+#status {
+  margin-top: 14px;
+  font-size: 12px;
+  color: #555;
+  min-height: 18px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+#status.error   { color: #c0392b; }
+#status.warning { color: #b7860b; }
+#status.ok      { color: var(--green); }
+
+/* Review flags */
+#review-flags {
+  margin-top: 10px;
+  display: none;
+  background: #fff9e6;
+  border: 1px solid #f0d060;
+  border-radius: 4px;
+  padding: 10px 14px;
+  font-size: 11px;
+  color: #7a6000;
+  line-height: 1.6;
+}
+
+/* Debug panel */
+#debug-panel {
+  display: none;
+  margin-top: 10px;
+  background: #f0f4f0;
+  border: 1px solid #c0d0c0;
+  border-radius: 4px;
+}
+#debug-toggle {
+  width: 100%; padding: 6px 14px; text-align: left;
+  background: none; border: none; cursor: pointer;
+  font-size: 11px; color: #444; font-weight: 600;
+}
+#debug-json {
+  display: none; max-height: 220px; overflow: auto;
+  padding: 8px 14px; font-size: 10px; font-family: monospace;
+  color: #333; white-space: pre-wrap; word-break: break-all;
+}
+
+/* ── VISUAL ABSTRACT AREA ── */
+#va-output { display: none; }
+
+/* ════════════════════════════════════
+   JAMA VA LAYOUT (inline, no iframe)
+════════════════════════════════════ */
+.va {
+  width: 920px;
+  margin: 0 auto;
+  font-family: var(--font);
+  box-shadow: 0 4px 24px rgba(0,0,0,0.28);
+  background: var(--cell-bg);
+}
+.va-header {
+  background: var(--green);
+  color: #fff;
+  padding: 13px 20px;
+  font-size: 28px;
+  font-weight: 800;
+  letter-spacing: 0.3px;
+}
+.va-title {
+  background: #fff;
+  padding: 9px 20px 8px;
+  font-size: 15px;
+  line-height: 1.25;
+}
+.va-title .study-type { color: var(--green); font-weight: 800; }
+.va-title .title-text { font-weight: 700; color: #111; }
+
+.va-main {
+  display: grid;
+  grid-template-columns: 268px 268px 1fr;
+}
+.va-bottom {
+  display: grid;
+  grid-template-columns: 268px 1fr;
+  border-top: 3px solid #fff;
+}
+.cell {
+  background: var(--cell-bg);
+  padding: 14px 16px;
+  border-right: 3px solid #fff;
+  border-top: 3px solid #fff;
+}
+.cell:last-child { border-right: none; }
+.cell-white { background: #fff; }
+
+.sec-lbl {
+  color: var(--green);
+  font-weight: 900;
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.9px;
+  margin-bottom: 8px;
+}
+.pop-count { font-size: 18px; font-weight: 800; color: #111; margin-bottom: 10px; }
+.pop-illus { margin: 6px 0 10px; }
+.pop-desc  { font-size: 10.5px; color: #333; line-height: 1.45; }
+.pop-age   { font-size: 11px; font-weight: 700; color: #111; margin-top: 7px; line-height: 1.35; }
+
+.int-total { font-size: 12px; color: #111; margin-bottom: 12px; }
+.int-total strong { font-size: 15px; font-weight: 800; }
+.arms-row { display: flex; gap: 6px; justify-content: space-around; }
+.arm-box  { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.arm-icon { width: 68px; height: 68px; }
+.arm-info { font-size: 10.5px; color: #333; text-align: center; line-height: 1.4; max-width: 140px; }
+.arm-n    { color: var(--green); font-weight: 800; font-size: 13px; display: block; }
+.arm-name { font-weight: 700; color: #111; display: block; }
+.arm-detail { font-size: 9px; color: #555; display: block; margin-top: 2px; line-height: 1.3; font-weight: 400; }
+/* 4+ arm compact mode - icon boxes */
+.arms-compact { gap: 4px; }
+.arms-compact .arm-icon { width: 44px; height: 44px; }
+.arms-compact .arm-info { font-size: 9.5px; }
+.arms-compact .arm-n    { font-size: 11px; }
+
+/* 4+ arm list mode - JAMA style for multi-arm trials */
+.arms-list-wrap { display: flex; gap: 12px; align-items: flex-start; }
+.arms-list-icon { width: 60px; height: 60px; flex-shrink: 0; }
+.arms-list { list-style: none; margin: 0; padding: 0; flex: 1; }
+.arms-list li {
+  font-size: 11px;
+  line-height: 1.4;
+  margin-bottom: 6px;
+  padding-left: 14px;
+  position: relative;
+}
+.arms-list li::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 5px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--bullet-color, #666);
+}
+.arms-list .arm-n { color: var(--green); font-weight: 800; font-size: 12px; }
+.arms-list .arm-name { font-weight: 600; color: #111; }
+
+.findings-sum { font-size: 10.5px; color: #333; line-height: 1.45; margin-bottom: 9px; }
+.chart-wrap   { width: 100%; min-height: 170px; position: relative; margin-bottom: 9px; }
+.chart-ph     {
+  width: 100%; height: 100%;
+  border: 1.5px dashed #ccc;
+  background: #f5f5f5;
+  display: flex; align-items: center; justify-content: center;
+  color: #bbb; font-size: 12px; border-radius: 2px;
+}
+#va-chart {
+  width: 100% !important; height: 170px !important;
+  display: none;
+}
+#va-pdf-figure {
+  max-width: 100%;
+  height: auto;
+  max-height: 400px;
+  object-fit: contain;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  display: block;
+}
+.findings-bullets { font-size: 10px; color: #333; line-height: 1.65; }
+
+.relative-risks {
+  margin-top: 8px;
+  padding: 8px 10px;
+  background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+  border-left: 3px solid var(--green);
+  border-radius: 0 4px 4px 0;
+  font-size: 10px;
+  line-height: 1.5;
+}
+.relative-risks .rr-label {
+  font-weight: 700;
+  color: #495057;
+  margin-bottom: 4px;
+}
+.relative-risks .rr-value {
+  font-weight: 800;
+  color: var(--green);
+  font-size: 12px;
+}
+.relative-risks .rr-ci {
+  color: #666;
+  font-style: italic;
+}
+.relative-risks .rr-p {
+  color: #dc3545;
+  font-weight: 600;
+}
+
+.settings-inner { display: flex; align-items: center; gap: 14px; margin-top: 6px; }
+.settings-icon  { width: 50px; height: 50px; flex-shrink: 0; }
+.settings-txt   { font-size: 15px; font-weight: 800; color: #111; line-height: 1.3; }
+
+.outcome-txt { font-size: 12px; color: #333; line-height: 1.45; margin-top: 4px; }
+
+.va-footer {
+  background: var(--cell-bg);
+  padding: 9px 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 12px;
+  border-top: 3px solid #fff;
+}
+.citation { font-size: 9px; color: #444; line-height: 1.5; font-style: italic; }
+.ama-lbl  { font-size: 9px; color: #666; white-space: nowrap; flex-shrink: 0; }
+
+.ph { color: var(--ph) !important; }
+
+/* ── REVIEW FLAG BADGES ── */
+.flag-badge {
+  display: inline-block;
+  background: #fff3cd;
+  border: 1px solid #e8a800;
+  border-radius: 3px;
+  padding: 1px 6px;
+  font-size: 9.5px;
+  color: #7a5000;
+  margin: 2px;
+}
+</style>
+</head>
+<body>
+
+<!-- ══ UPLOAD PANEL ══════════════════════════════════════════ -->
+<div id="upload-panel">
+  <h1>JAMA Visual Abstract Generator</h1>
+  <p class="sub">PDF, abstract metni veya JSON yükle — JAMA VA görselini saniyeler içinde üret.</p>
+
+  <!-- Tabs -->
+  <div class="input-tabs">
+    <button class="tab-btn active" onclick="switchTab('upload')">Dosya Yükle</button>
+    <button class="tab-btn" onclick="switchTab('paste')">Abstract Yapıştır</button>
+  </div>
+
+  <!-- Tab: File upload -->
+  <div id="tab-upload">
+    <div id="drop-zone">
+      <input type="file" id="file-input" accept=".pdf,.txt,.json">
+      <div class="dz-icon">⬆</div>
+      <div class="dz-title">Dosyayı buraya sürükle veya tıkla</div>
+      <div class="dz-hint">PDF • TXT (ham metin) • JSON (yapılandırılmış)</div>
+    </div>
+    <!-- PDF text preview (debug) -->
+    <div id="pdf-text-wrap">
+      <button id="pdf-text-toggle" onclick="document.getElementById('pdf-raw-text').style.display=document.getElementById('pdf-raw-text').style.display==='block'?'none':'block'">
+        PDF'den çıkarılan metin (göster/gizle)
+      </button>
+      <pre id="pdf-raw-text"></pre>
+    </div>
+  </div>
+
+  <!-- Tab: Paste abstract -->
+  <div id="tab-paste">
+    <textarea id="abstract-input" placeholder="JAMA makale abstractını buraya yapıştırın...
+
+Örnek format:
+DESIGN, SETTING, AND PARTICIPANTS: Randomized clinical trial...
+INTERVENTIONS: 53 children received CAPT...
+MAIN OUTCOMES AND MEASURES: Change of amblyopic eye VA...
+RESULTS: Mean (SD) age was 5.2 (1.2) years...
+"></textarea>
+    <button id="paste-btn" onclick="processPastedText()">Visual Abstract Üret</button>
+  </div>
+
+  <div id="status">Dosya bekleniyor...</div>
+  <div id="review-flags"></div>
+
+  <!-- Export Panel -->
+  <div class="export-panel" id="export-panel">
+    <h3>Export Visual Abstract</h3>
+    <div class="export-buttons">
+      <button class="export-btn" onclick="exportToPNG()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/>
+          <path d="M21 15l-5-5L5 21"/>
+        </svg>
+        PNG olarak indir
+      </button>
+      <button class="export-btn secondary" onclick="exportToPDF()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+          <polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/>
+          <line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/>
+        </svg>
+        PDF olarak indir
+      </button>
+    </div>
+    <div class="export-status" id="export-status"></div>
+  </div>
+</div>
+
+<!-- ══ VA OUTPUT ═════════════════════════════════════════════ -->
+<div id="va-output">
+  <div class="va" id="va">
+
+    <div class="va-header ph" id="va-journal">JAMA</div>
+
+    <div class="va-title">
+      <span class="study-type ph" id="va-study-type">RCT:</span>
+      <span class="title-text ph" id="va-title-text"> Başlık yükleniyor...</span>
+    </div>
+
+    <div class="va-main">
+
+      <!-- POPULATION -->
+      <div class="cell" id="cell-pop">
+        <div class="sec-lbl">Population</div>
+        <div class="pop-count ph" id="va-pop-count">N Men, N Women</div>
+        <div class="pop-illus" id="pop-illus">
+          <svg width="88" height="66" viewBox="0 0 88 66" fill="none">
+            <circle cx="44" cy="16" r="11" fill="#d0d8c8" stroke="#555" stroke-width="1.5"/>
+            <path d="M28 62 Q28 36 44 32 Q60 36 60 62 Z" fill="#d0d8c8" stroke="#555" stroke-width="1.5"/>
+            <line x1="28" y1="46" x2="16" y2="56" stroke="#555" stroke-width="1.5" stroke-linecap="round"/>
+            <line x1="60" y1="46" x2="72" y2="56" stroke="#555" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+        </div>
+        <div class="pop-desc ph" id="va-pop-desc">Hasta grubu tanımı</div>
+        <div class="pop-age ph"  id="va-pop-age">Mean (SD) age, – y</div>
+      </div>
+
+      <!-- INTERVENTION -->
+      <div class="cell" id="cell-int">
+        <div class="sec-lbl">Intervention</div>
+        <div class="int-total ph" id="va-int-total"><strong>–</strong> Patients randomized and analyzed</div>
+        <div class="arms-row ph" id="va-arms">
+          <div class="arm-box">
+            <svg class="arm-icon" viewBox="0 0 68 68" fill="none">
+              <line x1="58" y1="10" x2="63" y2="5"  stroke="#555" stroke-width="2"   stroke-linecap="round"/>
+              <line x1="60" y1="8"  x2="55" y2="13" stroke="#555" stroke-width="1.5" stroke-linecap="round"/>
+              <path d="M16 52 L50 18" stroke="#555" stroke-width="1.5"/>
+              <path d="M19 56 L23 52 L55 20 L51 16 Z" stroke="#555" stroke-width="1.5" fill="#e8eddf"/>
+              <line x1="34" y1="33" x2="30" y2="37" stroke="#888" stroke-width="1"/>
+              <line x1="39" y1="28" x2="35" y2="32" stroke="#888" stroke-width="1"/>
+              <rect x="13" y="50" width="8" height="4" rx="1" transform="rotate(-45 17 52)" fill="#555"/>
+              <circle cx="7" cy="61" r="3" fill="#555"/>
+              <line x1="10" y1="58" x2="16" y2="52" stroke="#555" stroke-width="2.5" stroke-linecap="round"/>
+            </svg>
+            <div class="arm-info"><span class="arm-n">–</span><span class="arm-name">Kol 1</span></div>
+          </div>
+          <div class="arm-box">
+            <svg class="arm-icon" viewBox="0 0 68 68" fill="none">
+              <g transform="rotate(-35,34,34)">
+                <rect x="21" y="8" width="26" height="52" rx="13" stroke="#555" stroke-width="1.5" fill="none"/>
+                <line x1="21" y1="34" x2="47" y2="34" stroke="#555" stroke-width="1.5"/>
+                <path d="M21 34 Q21 8 34 8 Q47 8 47 34 Z" fill="#d0d8c8"/>
+              </g>
+            </svg>
+            <div class="arm-info"><span class="arm-n">–</span><span class="arm-name">Kol 2</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- FINDINGS -->
+      <div class="cell cell-white">
+        <div class="sec-lbl">Findings</div>
+        <div class="findings-sum ph" id="va-findings-text">Bulgular yükleniyor...</div>
+        <div class="chart-wrap" id="va-chart-wrap">
+          <div class="chart-ph" id="va-chart-ph">[ Grafik / Figure ]</div>
+          <canvas id="va-chart"></canvas>
+        </div>
+        <div class="findings-bullets ph" id="va-findings-bullets">–</div>
+        <div class="relative-risks" id="va-relative-risks" style="display:none;"></div>
+      </div>
+
+    </div>
+
+    <!-- BOTTOM ROW -->
+    <div class="va-bottom">
+      <div class="cell">
+        <div class="sec-lbl">Settings / Locations</div>
+        <div class="settings-inner">
+          <svg class="settings-icon" viewBox="0 0 50 50" fill="none">
+            <circle cx="25" cy="25" r="20" stroke="#1e5c34" stroke-width="2"/>
+            <ellipse cx="25" cy="25" rx="9" ry="20" stroke="#1e5c34" stroke-width="1.4"/>
+            <line x1="5" y1="25" x2="45" y2="25" stroke="#1e5c34" stroke-width="1.4"/>
+            <path d="M8 16 Q25 12 42 16" stroke="#1e5c34" stroke-width="1.2" fill="none"/>
+            <path d="M8 34 Q25 38 42 34" stroke="#1e5c34" stroke-width="1.2" fill="none"/>
+          </svg>
+          <div class="settings-txt ph" id="va-settings">–</div>
+        </div>
+      </div>
+      <div class="cell" style="border-right:none">
+        <div class="sec-lbl">Primary Outcome</div>
+        <div class="outcome-txt ph" id="va-primary-outcome">Primer sonlanım yükleniyor...</div>
+      </div>
+    </div>
+
+    <div class="va-footer">
+      <div class="citation ph" id="va-citation">Atıf bilgisi yükleniyor...</div>
+      <div class="ama-lbl">© AMA</div>
+    </div>
+
+  </div><!-- /va -->
+</div><!-- /va-output -->
+
+<!-- Debug panel: parse sonucu JSON -->
+<div id="debug-panel" style="max-width:920px;margin:0 auto 24px;">
+  <button id="debug-toggle" onclick="document.getElementById('debug-json').style.display=document.getElementById('debug-json').style.display==='block'?'none':'block'">
+    ▶ Parsed JSON göster / gizle
+  </button>
+  <pre id="debug-json"></pre>
+</div>
+
+<script>
+// ── PDF.js worker path ──────────────────────────────────────────────────
+if (typeof pdfjsLib !== 'undefined') {
+  pdfjsLib.GlobalWorkerOptions.workerSrc = 'lib/pdf.worker.min.js';
+}
+
+// ── SVG icon set ────────────────────────────────────────────────────────
+const ICONS = [
+  // syringe
+  `<svg class="arm-icon" viewBox="0 0 68 68" fill="none">
+    <line x1="58" y1="10" x2="63" y2="5"  stroke="#555" stroke-width="2"   stroke-linecap="round"/>
+    <line x1="60" y1="8"  x2="55" y2="13" stroke="#555" stroke-width="1.5" stroke-linecap="round"/>
+    <path d="M16 52 L50 18" stroke="#555" stroke-width="1.5"/>
+    <path d="M19 56 L23 52 L55 20 L51 16 Z" stroke="#555" stroke-width="1.5" fill="#e8eddf"/>
+    <line x1="34" y1="33" x2="30" y2="37" stroke="#888" stroke-width="1"/>
+    <line x1="39" y1="28" x2="35" y2="32" stroke="#888" stroke-width="1"/>
+    <rect x="13" y="50" width="8" height="4" rx="1" transform="rotate(-45 17 52)" fill="#555"/>
+    <circle cx="7" cy="61" r="3" fill="#555"/>
+    <line x1="10" y1="58" x2="16" y2="52" stroke="#555" stroke-width="2.5" stroke-linecap="round"/>
+  </svg>`,
+  // capsule pill
+  `<svg class="arm-icon" viewBox="0 0 68 68" fill="none">
+    <g transform="rotate(-35,34,34)">
+      <rect x="21" y="8" width="26" height="52" rx="13" stroke="#555" stroke-width="1.5" fill="none"/>
+      <line x1="21" y1="34" x2="47" y2="34" stroke="#555" stroke-width="1.5"/>
+      <path d="M21 34 Q21 8 34 8 Q47 8 47 34 Z" fill="#d0d8c8"/>
+    </g>
+  </svg>`,
+  // round tablet
+  `<svg class="arm-icon" viewBox="0 0 68 68" fill="none">
+    <circle cx="34" cy="34" r="20" stroke="#555" stroke-width="1.5" fill="none"/>
+    <line x1="14" y1="34" x2="54" y2="34" stroke="#555" stroke-width="1.5"/>
+    <path d="M14 34 A20 20 0 0 1 54 34 Z" fill="#d0d8c8"/>
+  </svg>`,
+];
+
+// ── Population icons — 28 specialties, keyword-based ─────────────────────
+const MEDICAL_ICONS = {
+  virus: {
+    kw: ['covid','sars','virus','influenza','viral','infection','pcr','pandemic','hiv','hepatitis','sepsis','bacteremia','rsv','rotavirus','norovirus','dengue','zika'],
+    svg: `<svg width="88" height="66" viewBox="0 0 88 66" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="44" cy="33" r="14" fill="#1e5c34" opacity="0.15"/>
+      <circle cx="44" cy="33" r="10" fill="#1e5c34" opacity="0.25"/>
+      <circle cx="44" cy="33" r="5" fill="#1e5c34"/>
+      <g stroke="#1e5c34" stroke-width="2" stroke-linecap="round">
+        <line x1="44" y1="19" x2="44" y2="10"/><circle cx="44" cy="8" r="3" fill="#1e5c34"/>
+        <line x1="54" y1="23" x2="61" y2="16"/><circle cx="63" cy="14" r="3" fill="#1e5c34"/>
+        <line x1="58" y1="33" x2="67" y2="33"/><circle cx="69" cy="33" r="3" fill="#1e5c34"/>
+        <line x1="54" y1="43" x2="61" y2="50"/><circle cx="63" cy="52" r="3" fill="#1e5c34"/>
+        <line x1="44" y1="47" x2="44" y2="56"/><circle cx="44" cy="58" r="3" fill="#1e5c34"/>
+        <line x1="34" y1="43" x2="27" y2="50"/><circle cx="25" cy="52" r="3" fill="#1e5c34"/>
+        <line x1="30" y1="33" x2="21" y2="33"/><circle cx="19" cy="33" r="3" fill="#1e5c34"/>
+        <line x1="34" y1="23" x2="27" y2="16"/><circle cx="25" cy="14" r="3" fill="#1e5c34"/>
+      </g>
+    </svg>`
+  },
+  bacteria: {
+    kw: ['bacterial','antibiotic','bacterium','gram-','pseudomonas','staph','streptococ','escherichia','klebsiella','clostridium','uti ','urinary tract infection','cellulitis','osteomyelitis','septic'],
+    svg: `<svg width="88" height="66" viewBox="0 0 88 66" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <ellipse cx="44" cy="33" rx="16" ry="10" fill="#1e5c34" opacity="0.2"/>
+      <ellipse cx="44" cy="33" rx="16" ry="10" fill="none" stroke="#1e5c34" stroke-width="2.5"/>
+      <ellipse cx="44" cy="33" rx="6" ry="4" fill="#1e5c34" opacity="0.4"/>
+      <g stroke="#1e5c34" stroke-width="1.5" stroke-linecap="round">
+        <path d="M28 33 Q22 28 16 32 Q10 36 6 30" fill="none"/>
+        <path d="M60 33 Q66 28 72 32 Q78 36 82 30" fill="none"/>
+        <line x1="36" y1="23" x2="34" y2="14"/><line x1="44" y1="23" x2="44" y2="12"/>
+        <line x1="52" y1="23" x2="54" y2="14"/><line x1="36" y1="43" x2="34" y2="52"/>
+        <line x1="44" y1="43" x2="44" y2="54"/><line x1="52" y1="43" x2="54" y2="52"/>
+      </g>
+    </svg>`
+  },
+  cancer: {
+    kw: ['oncolog','tumor','tumour','malignan','carcinoma','sarcoma','lymphoma','leukemia','leukaemia','breast cancer','lung cancer','prostate cancer','colon cancer','melanoma','glioma','metasta','chemotherapy','immunotherapy','checkpoint'],
+    svg: `<svg width="88" height="66" viewBox="0 0 88 66" fill="none"><path d="M44 6 C54 4 66 14 68 26 C74 32 74 44 68 52 C62 60 50 62 40 60 C28 62 18 54 16 42 C10 34 12 20 22 14 C30 8 36 8 44 6 Z" fill="#d0d8c8" stroke="#555" stroke-width="1.5"/><circle cx="36" cy="28" r="6" fill="none" stroke="#888" stroke-width="1"/><circle cx="52" cy="38" r="6" fill="none" stroke="#888" stroke-width="1"/><circle cx="40" cy="46" r="4" fill="none" stroke="#888" stroke-width="0.8"/><line x1="42" y1="28" x2="46" y2="38" stroke="#888" stroke-width="0.8" stroke-dasharray="2,1"/></svg>`
+  },
+  pregnant: {
+    kw: ['pregnan','obstetric','maternal','prenatal','antenatal','gestational diabetes','preeclampsia','eclampsia','postpartum','fetal','foetal','birth','labor','labour','caesarean','cesarean'],
+    svg: `<svg width="88" height="66" viewBox="0 0 88 66" fill="none"><circle cx="44" cy="12" r="9" fill="#d0d8c8" stroke="#555" stroke-width="1.5"/><path d="M34 20 C28 22 24 28 22 36 C20 44 24 52 32 56 L56 56 C64 52 68 44 66 36 C64 28 60 22 54 20 Z" fill="#d0d8c8" stroke="#555" stroke-width="1.5"/><circle cx="44" cy="38" r="10" fill="#e8eddf" stroke="#888" stroke-width="1"/><circle cx="44" cy="35" r="4" fill="none" stroke="#888" stroke-width="0.8"/></svg>`
+  },
+  baby: {
+    kw: ['neonatal','infant','nicu','preterm','premature','newborn','pediatric','paediatric','child','adolescent','youth','youths','teenage','teenager','gestational age','birth weight'],
+    svg: `<svg width="88" height="66" viewBox="0 0 88 66" fill="none"><circle cx="44" cy="20" r="14" fill="#d0d8c8" stroke="#555" stroke-width="1.5"/><ellipse cx="44" cy="48" rx="11" ry="13" fill="#d0d8c8" stroke="#555" stroke-width="1.5"/><path d="M33 42 C25 42 22 52 28 54" stroke="#555" stroke-width="1.5" fill="none" stroke-linecap="round"/><path d="M55 42 C63 42 66 52 60 54" stroke="#555" stroke-width="1.5" fill="none" stroke-linecap="round"/><circle cx="39" cy="19" r="1.5" fill="#555"/><circle cx="49" cy="19" r="1.5" fill="#555"/><path d="M40 25 Q44 28 48 25" stroke="#555" stroke-width="1" fill="none" stroke-linecap="round"/></svg>`
+  },
+  heart: {
+    kw: ['cardiac','cardiovascular','heart failure','coronary','atrial fibril','myocardial','infarct','arrhythmia','hypertension','angina','aortic','valve','pericarditis','endocarditis','cardiomyop'],
+    svg: `<svg width="88" height="66" viewBox="0 0 88 66" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M44 54 C26 44 14 32 16 22 C18 12 28 10 44 24 C60 10 70 12 72 22 C74 32 62 44 44 54Z" fill="#1e5c34" opacity="0.15"/>
+      <path d="M44 54 C26 44 14 32 16 22 C18 12 28 10 44 24 C60 10 70 12 72 22 C74 32 62 44 44 54Z" fill="none" stroke="#1e5c34" stroke-width="2.5" stroke-linejoin="round"/>
+      <polyline points="20,32 28,32 32,24 36,40 40,32 44,32 48,26 52,38 56,32 68,32" stroke="#1e5c34" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>`
+  },
+  brain: {
+    kw: ['neurolog','stroke','dementia','alzheimer','parkinson','epilepsy','seizure','migraine','cognitive','cerebral','cerebrovascular','neurodegen','multiple sclerosis','tbi','traumatic brain'],
+    svg: `<svg width="88" height="66" viewBox="0 0 88 66" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M44 8 C32 8 22 16 20 26 C16 32 16 40 20 46 C24 56 34 60 44 60 C54 60 64 56 68 46 C72 40 72 32 68 26 C66 16 56 8 44 8Z" fill="#1e5c34" opacity="0.15"/>
+      <path d="M44 8 C32 8 22 16 20 26 C16 32 16 40 20 46 C24 56 34 60 44 60 C54 60 64 56 68 46 C72 40 72 32 68 26 C66 16 56 8 44 8Z" fill="none" stroke="#1e5c34" stroke-width="2.5"/>
+      <path d="M30 20 Q38 16 44 20 Q50 24 58 20" fill="none" stroke="#1e5c34" stroke-width="1.5" stroke-linecap="round" opacity="0.6"/>
+      <path d="M26 34 Q36 28 44 32 Q52 36 62 32" fill="none" stroke="#1e5c34" stroke-width="1.5" stroke-linecap="round" opacity="0.6"/>
+      <path d="M28 48 Q38 42 44 46 Q50 50 60 46" fill="none" stroke="#1e5c34" stroke-width="1.5" stroke-linecap="round" opacity="0.6"/>
+      <line x1="44" y1="10" x2="44" y2="58" stroke="#1e5c34" stroke-width="1" opacity="0.4"/>
+    </svg>`
+  },
+  mental_health: {
+    kw: ['depress','anxiety','psychiatric','mental health','bipolar','schizophren','ptsd','post-traumatic','ocd','obsessive','anorexia','bulimia','eating disorder','insomnia','sleep disorder','psycholog','psychotherapy','cognitive behavioral','cbt','counseling','counselling','mental health service','psychological support'],
+    svg: `<svg width="88" height="66" viewBox="0 0 88 66" fill="none"><path d="M44 6 C30 6 18 16 18 28 C18 38 24 46 34 50 L34 56 L54 56 L54 50 C64 46 70 38 70 28 C70 16 58 6 44 6 Z" fill="#d0d8c8" stroke="#555" stroke-width="1.5"/><path d="M34 22 C30 22 28 26 30 30 C28 34 32 38 36 36 C38 40 42 40 44 38 C46 40 50 40 52 36 C56 38 60 34 58 30 C60 26 58 22 54 22 C52 18 48 18 44 20 C40 18 36 18 34 22 Z" fill="none" stroke="#888" stroke-width="1"/></svg>`
+  },
+  lung: {
+    kw: ['respiratory','pulmonary','asthma','copd','pneumonia','bronchial','airway','lung ','thoracic','pleural','emphysema','fibrosis','sarcoidosis','interstitial','bronchitis','trachea','larynx'],
+    svg: `<svg width="88" height="66" viewBox="0 0 88 66" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M44 6 L44 20" stroke="#1e5c34" stroke-width="3" stroke-linecap="round"/>
+      <path d="M44 20 L32 26" stroke="#1e5c34" stroke-width="2.5" stroke-linecap="round"/>
+      <path d="M44 20 L56 26" stroke="#1e5c34" stroke-width="2.5" stroke-linecap="round"/>
+      <path d="M32 26 C18 26 14 58 28 58 C38 58 40 48 38 42 L36 32 C34 28 32 26 32 26Z" fill="#1e5c34" opacity="0.15"/>
+      <path d="M32 26 C18 26 14 58 28 58 C38 58 40 48 38 42 L36 32 C34 28 32 26 32 26Z" fill="none" stroke="#1e5c34" stroke-width="2.5"/>
+      <path d="M56 26 C70 26 74 58 60 58 C50 58 48 48 50 42 L52 32 C54 28 56 26 56 26Z" fill="#1e5c34" opacity="0.15"/>
+      <path d="M56 26 C70 26 74 58 60 58 C50 58 48 48 50 42 L52 32 C54 28 56 26 56 26Z" fill="none" stroke="#1e5c34" stroke-width="2.5"/>
+    </svg>`
+  },
+  eye: {
+    kw: ['amblyopia','glaucoma','ophthalmolog','retinal','visual acuity','intraocular','macular','cataract','strabismus','keratoconus','uveitis','diabetic retinopathy','corneal'],
+    svg: `<svg width="88" height="66" viewBox="0 0 88 66" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M10 33 Q26 12 44 12 Q62 12 78 33 Q62 54 44 54 Q26 54 10 33Z" fill="#1e5c34" opacity="0.1"/>
+      <path d="M10 33 Q26 12 44 12 Q62 12 78 33 Q62 54 44 54 Q26 54 10 33Z" fill="none" stroke="#1e5c34" stroke-width="2.5"/>
+      <circle cx="44" cy="33" r="12" fill="#1e5c34" opacity="0.2" stroke="#1e5c34" stroke-width="2"/>
+      <circle cx="44" cy="33" r="6" fill="#1e5c34"/>
+      <circle cx="46" cy="31" r="2" fill="#fff"/>
+    </svg>`
+  },
+  ear: {
+    kw: ['bppv','vertigo','vestibular','otolaryngol','hearing loss','tinnitus','dizziness','otolog','labyrinth','cochlear','meniere','otitis','eardrum','audiology','deaf'],
+    svg: `<svg width="88" height="66" viewBox="0 0 88 66" fill="none"><path d="M38 8 C54 8 62 20 62 33 C62 46 54 60 44 60" fill="none" stroke="#555" stroke-width="2" stroke-linecap="round"/><path d="M38 8 C22 8 20 58 38 58 C46 58 50 52 46 46 C42 40 38 38 38 30 C38 22 48 20 52 26" fill="none" stroke="#555" stroke-width="2" stroke-linecap="round"/></svg>`
+  },
+  nose: {
+    kw: ['rhinit','sinusit','nasal polyp','rhinolog','rhinorrhea','epistaxis','nasal','sinonasal','allergic rhinit'],
+    svg: `<svg width="88" height="66" viewBox="0 0 88 66" fill="none"><path d="M44 8 C44 8 30 28 26 40 C24 46 26 52 32 54 C36 56 40 54 44 50 C48 54 52 56 56 54 C62 52 64 46 62 40 C58 28 44 8 44 8 Z" fill="#d0d8c8" stroke="#555" stroke-width="1.5"/><ellipse cx="34" cy="50" rx="8" ry="5" fill="#e8eddf" stroke="#888" stroke-width="1"/><ellipse cx="54" cy="50" rx="8" ry="5" fill="#e8eddf" stroke="#888" stroke-width="1"/><line x1="44" y1="22" x2="44" y2="44" stroke="#888" stroke-width="0.8" stroke-dasharray="3,2"/></svg>`
+  },
+  stomach: {
+    kw: ['gastric','peptic ulcer','gerd','gastroesophag','nausea','vomiting','dyspepsia','gastritis','helicobacter','pylori','gastroparesis','bariatric'],
+    svg: `<svg width="88" height="66" viewBox="0 0 88 66" fill="none"><path d="M30 18 C30 12 38 10 44 12 C52 10 62 16 64 28 C68 38 62 52 54 56 C46 60 34 58 28 52 C20 46 20 36 24 28 C26 22 28 20 30 18 Z" fill="#d0d8c8" stroke="#555" stroke-width="1.5"/><path d="M34 26 Q44 20 54 26" fill="none" stroke="#888" stroke-width="1" stroke-linecap="round"/><path d="M28 38 Q44 30 60 36" fill="none" stroke="#888" stroke-width="1" stroke-linecap="round"/><path d="M28 48 Q44 42 56 46" fill="none" stroke="#888" stroke-width="1" stroke-linecap="round"/></svg>`
+  },
+  liver: {
+    kw: ['hepat','cirrhosis','nafld','nash','fatty liver','hepatocellular','liver fibrosis','biliary','cholestasis','portal hypertension'],
+    svg: `<svg width="88" height="66" viewBox="0 0 88 66" fill="none"><path d="M12 28 C12 16 22 10 36 12 C46 10 60 8 70 18 C80 28 80 44 72 52 C64 58 50 60 38 58 C24 60 14 52 12 42 C10 38 10 32 12 28 Z" fill="#d0d8c8" stroke="#555" stroke-width="1.5"/><path d="M44 12 C42 30 40 46 38 58" fill="none" stroke="#888" stroke-width="0.8" stroke-dasharray="3,2"/><ellipse cx="30" cy="36" rx="8" ry="5" fill="none" stroke="#888" stroke-width="0.8"/></svg>`
+  },
+  colon: {
+    kw: ['crohn','colitis','ibd','inflammatory bowel','colorectal','colon cancer','diverticular','irritable bowel','ibs','constipation','diarrhea','colonoscopy','rectal'],
+    svg: `<svg width="88" height="66" viewBox="0 0 88 66" fill="none"><path d="M16 14 L72 14 Q78 14 78 20 L78 50 Q78 56 72 56 L60 56 Q54 56 54 50 L54 36 Q54 30 48 30 L40 30 Q34 30 34 36 L34 50 Q34 56 28 56 L16 56 Q10 56 10 50 L10 20 Q10 14 16 14 Z" fill="#d0d8c8" stroke="#555" stroke-width="1.5"/><line x1="30" y1="14" x2="30" y2="22" stroke="#888" stroke-width="0.8"/><line x1="44" y1="14" x2="44" y2="22" stroke="#888" stroke-width="0.8"/><line x1="58" y1="14" x2="58" y2="22" stroke="#888" stroke-width="0.8"/></svg>`
+  },
+  kidney: {
+    kw: ['renal','nephrol','chronic kidney','ckd','glomerul','nephropathy','dialysis','end-stage renal','transplant kidney','aki','acute kidney'],
+    svg: `<svg width="88" height="66" viewBox="0 0 88 66" fill="none"><path d="M24 10 C14 10 10 20 10 33 C10 46 14 56 24 56 C30 56 34 52 34 44 C34 40 30 36 30 33 C30 30 34 26 34 22 C34 16 30 10 24 10 Z" fill="#d0d8c8" stroke="#555" stroke-width="1.5"/><path d="M64 10 C74 10 78 20 78 33 C78 46 74 56 64 56 C58 56 54 52 54 44 C54 40 58 36 58 33 C58 30 54 26 54 22 C54 16 58 10 64 10 Z" fill="#d0d8c8" stroke="#555" stroke-width="1.5"/><line x1="34" y1="33" x2="54" y2="33" stroke="#888" stroke-width="1" stroke-dasharray="3,2"/></svg>`
+  },
+  bladder: {
+    kw: ['urinary incontinence','overactive bladder','urolog','cystitis','bladder cancer','urethral','voiding','nocturia','prostate'],
+    svg: `<svg width="88" height="66" viewBox="0 0 88 66" fill="none"><ellipse cx="44" cy="40" rx="20" ry="16" fill="#d0d8c8" stroke="#555" stroke-width="1.5"/><circle cx="36" cy="34" r="2" fill="#888"/><circle cx="52" cy="34" r="2" fill="#888"/><line x1="44" y1="56" x2="44" y2="62" stroke="#555" stroke-width="2" stroke-linecap="round"/><ellipse cx="24" cy="18" rx="8" ry="11" fill="#d0d8c8" stroke="#555" stroke-width="1.2"/><ellipse cx="64" cy="18" rx="8" ry="11" fill="#d0d8c8" stroke="#555" stroke-width="1.2"/><path d="M30 26 Q36 32 36 34" stroke="#555" stroke-width="1.2" fill="none"/><path d="M58 26 Q52 32 52 34" stroke="#555" stroke-width="1.2" fill="none"/></svg>`
+  },
+  diabetes: {
+    kw: ['diabetes','glycemic','glycaemic','insulin','hemoglobin a1c','hba1c','glucose','hypoglycemia','hyperglycemia','type 2','type 1','metabolic syndrome','obesity','bmi','overweight'],
+    svg: `<svg width="88" height="66" viewBox="0 0 88 66" fill="none"><polygon points="44,8 60,17 60,35 44,44 28,35 28,17" fill="#d0d8c8" stroke="#555" stroke-width="1.5"/><polygon points="44,16 54,22 54,34 44,40 34,34 34,22" fill="none" stroke="#888" stroke-width="0.8"/><path d="M44 48 Q40 56 44 58 Q48 56 44 48 Z" fill="#888" stroke="#555" stroke-width="1"/></svg>`
+  },
+  thyroid: {
+    kw: ['thyroid','hypothyroid','hyperthyroid','graves','hashimoto','thyroxine','tsh','goiter'],
+    svg: `<svg width="88" height="66" viewBox="0 0 88 66" fill="none"><ellipse cx="30" cy="36" rx="14" ry="20" fill="#d0d8c8" stroke="#555" stroke-width="1.5"/><ellipse cx="58" cy="36" rx="14" ry="20" fill="#d0d8c8" stroke="#555" stroke-width="1.5"/><rect x="30" y="31" width="28" height="10" rx="2" fill="#d0d8c8" stroke="#555" stroke-width="1"/><line x1="44" y1="8" x2="44" y2="16" stroke="#555" stroke-width="2.5" stroke-linecap="round"/></svg>`
+  },
+  blood: {
+    kw: ['hematol','anemia','anaemia','sickle cell','leukemia','leukaemia','lymphoma hematol','hemoglobin','haemoglobin','platelet','thrombocytopen','coagulat','anticoagulant','warfarin','thrombosis','deep vein'],
+    svg: `<svg width="88" height="66" viewBox="0 0 88 66" fill="none"><ellipse cx="33" cy="27" rx="16" ry="10" fill="#d0d8c8" stroke="#555" stroke-width="1.5"/><ellipse cx="33" cy="27" rx="7" ry="4" fill="#e8eddf" stroke="#888" stroke-width="0.8"/><ellipse cx="55" cy="42" rx="14" ry="9" fill="#d0d8c8" stroke="#555" stroke-width="1.5"/><ellipse cx="55" cy="42" rx="6" ry="3.5" fill="#e8eddf" stroke="#888" stroke-width="0.8"/><path d="M68 12 Q64 20 68 22 Q72 20 68 12 Z" fill="#888" stroke="#555" stroke-width="0.8"/></svg>`
+  },
+  bone: {
+    kw: ['orthopedic','orthopaedic','fracture','osteoporosis','arthroplasty','knee replacement','hip replacement','shoulder','osteotomy','bone density','dexa'],
+    svg: `<svg width="88" height="66" viewBox="0 0 88 66" fill="none"><circle cx="22" cy="16" r="9" fill="#d0d8c8" stroke="#555" stroke-width="1.5"/><circle cx="66" cy="50" r="9" fill="#d0d8c8" stroke="#555" stroke-width="1.5"/><path d="M30 22 L58 44" stroke="#555" stroke-width="8" stroke-linecap="round"/><path d="M30 22 L58 44" stroke="#d0d8c8" stroke-width="4" stroke-linecap="round"/><circle cx="22" cy="50" r="9" fill="#d0d8c8" stroke="#555" stroke-width="1.5"/><circle cx="66" cy="16" r="9" fill="#d0d8c8" stroke="#555" stroke-width="1.5"/></svg>`
+  },
+  joint: {
+    kw: ['rheumatoid','arthritis','lupus','gout','osteoarthritis','synovitis','ankylosing spondyl','psoriatic arthritis','juvenile arthritis','joint pain'],
+    svg: `<svg width="88" height="66" viewBox="0 0 88 66" fill="none"><rect x="36" y="6" width="16" height="22" rx="8" fill="#d0d8c8" stroke="#555" stroke-width="1.5"/><rect x="36" y="38" width="16" height="22" rx="8" fill="#d0d8c8" stroke="#555" stroke-width="1.5"/><rect x="32" y="27" width="24" height="12" rx="2" fill="#e8eddf" stroke="#888" stroke-width="1"/></svg>`
+  },
+  spine: {
+    kw: ['back pain','low back','disc herniation','sciatica','scoliosis','spinal stenosis','vertebral','lumbar','cervical spine','thoracic spine','radiculopathy'],
+    svg: `<svg width="88" height="66" viewBox="0 0 88 66" fill="none"><rect x="37" y="6" width="14" height="7" rx="2" fill="#d0d8c8" stroke="#555" stroke-width="1.2"/><rect x="37" y="16" width="14" height="7" rx="2" fill="#d0d8c8" stroke="#555" stroke-width="1.2"/><rect x="37" y="26" width="14" height="7" rx="2" fill="#d0d8c8" stroke="#555" stroke-width="1.2"/><rect x="37" y="36" width="14" height="7" rx="2" fill="#d0d8c8" stroke="#555" stroke-width="1.2"/><rect x="37" y="46" width="14" height="7" rx="2" fill="#d0d8c8" stroke="#555" stroke-width="1.2"/><rect x="37" y="56" width="14" height="7" rx="2" fill="#d0d8c8" stroke="#555" stroke-width="1.2"/><ellipse cx="44" cy="14" rx="10" ry="1.5" fill="#e8eddf" stroke="#888" stroke-width="0.8"/><ellipse cx="44" cy="24" rx="10" ry="1.5" fill="#e8eddf" stroke="#888" stroke-width="0.8"/><ellipse cx="44" cy="34" rx="10" ry="1.5" fill="#e8eddf" stroke="#888" stroke-width="0.8"/><ellipse cx="44" cy="44" rx="10" ry="1.5" fill="#e8eddf" stroke="#888" stroke-width="0.8"/><ellipse cx="44" cy="54" rx="10" ry="1.5" fill="#e8eddf" stroke="#888" stroke-width="0.8"/><line x1="37" y1="10" x2="28" y2="10" stroke="#555" stroke-width="1"/><line x1="37" y1="20" x2="28" y2="20" stroke="#555" stroke-width="1"/><line x1="37" y1="30" x2="28" y2="30" stroke="#555" stroke-width="1"/><line x1="37" y1="40" x2="28" y2="40" stroke="#555" stroke-width="1"/><line x1="37" y1="50" x2="28" y2="50" stroke="#555" stroke-width="1"/><line x1="51" y1="10" x2="60" y2="10" stroke="#555" stroke-width="1"/><line x1="51" y1="20" x2="60" y2="20" stroke="#555" stroke-width="1"/><line x1="51" y1="30" x2="60" y2="30" stroke="#555" stroke-width="1"/><line x1="51" y1="40" x2="60" y2="40" stroke="#555" stroke-width="1"/><line x1="51" y1="50" x2="60" y2="50" stroke="#555" stroke-width="1"/></svg>`
+  },
+  muscle: {
+    kw: ['fibromyalgia','myopathy','myositis','muscular dystrophy','neuromuscular','sarcopenia','muscle weakness','myasthenia'],
+    svg: `<svg width="88" height="66" viewBox="0 0 88 66" fill="none"><path d="M12 42 C12 32 20 22 32 20 C38 18 44 22 44 30 C44 22 50 18 56 20 C68 22 76 32 76 42 C76 54 68 60 56 58 C50 60 44 56 44 46 C44 56 38 60 32 58 C20 60 12 54 12 42 Z" fill="#d0d8c8" stroke="#555" stroke-width="1.5"/><path d="M44 30 L44 46" stroke="#888" stroke-width="1" stroke-dasharray="3,2"/></svg>`
+  },
+  skin: {
+    kw: ['dermatol','eczema','psoriasis','atopic','dermatitis','melanoma','acne','rosacea','urticaria','skin ','wound healing','scar','keloid','easi','iga','bsa','pruritus'],
+    svg: `<svg width="88" height="66" viewBox="0 0 88 66" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="14" y="10" width="60" height="46" rx="4" fill="#1e5c34" opacity="0.1" stroke="#1e5c34" stroke-width="2.5"/>
+      <line x1="14" y1="22" x2="74" y2="22" stroke="#1e5c34" stroke-width="1.5" opacity="0.5"/>
+      <line x1="14" y1="34" x2="74" y2="34" stroke="#1e5c34" stroke-width="1.5" opacity="0.5"/>
+      <line x1="14" y1="46" x2="74" y2="46" stroke="#1e5c34" stroke-width="1.5" opacity="0.5"/>
+      <text x="44" y="32" text-anchor="middle" font-size="10" fill="#1e5c34" font-family="sans-serif" font-weight="bold">EPIDERMIS</text>
+      <text x="44" y="42" text-anchor="middle" font-size="8" fill="#1e5c34" font-family="sans-serif" opacity="0.7">DERMIS</text>
+      <circle cx="24" cy="16" r="3" fill="#1e5c34" opacity="0.4"/>
+      <circle cx="34" cy="17" r="2" fill="#1e5c34" opacity="0.4"/>
+      <circle cx="54" cy="15" r="2.5" fill="#1e5c34" opacity="0.4"/>
+      <circle cx="64" cy="17" r="2" fill="#1e5c34" opacity="0.4"/>
+    </svg>`
+  },
+  tooth: {
+    kw: ['dental','periodont','oral health','caries','gingivit','tooth','teeth','orthodontic','endodontic','implant dent'],
+    svg: `<svg width="88" height="66" viewBox="0 0 88 66" fill="none"><path d="M26 8 C22 8 18 14 18 22 C18 30 20 38 24 44 C26 50 28 58 32 58 C34 58 36 54 36 48 C36 44 38 42 44 42 C50 42 52 44 52 48 C52 54 54 58 58 58 C62 58 64 50 66 44 C70 38 72 30 72 22 C72 14 68 8 64 8 Z" fill="#d0d8c8" stroke="#555" stroke-width="1.5"/><path d="M26 8 C34 4 44 6 44 8 C44 6 54 4 64 8" fill="none" stroke="#888" stroke-width="0.8" stroke-linecap="round"/></svg>`
+  },
+  surgery: {
+    kw: ['surgical','surgery','operative','laparoscop','endoscop','resection','incision','transplant','appendect','cholecyst','hernia repair','arthroplasty surgical'],
+    svg: `<svg width="88" height="66" viewBox="0 0 88 66" fill="none"><line x1="12" y1="33" x2="62" y2="33" stroke="#555" stroke-width="6" stroke-linecap="round"/><line x1="12" y1="33" x2="62" y2="33" stroke="#d0d8c8" stroke-width="2" stroke-linecap="round"/><path d="M62 28 L80 33 L62 38 Z" fill="#888" stroke="#555" stroke-width="1"/><line x1="44" y1="15" x2="44" y2="8" stroke="#555" stroke-width="1.5" stroke-linecap="round"/><line x1="38" y1="11" x2="50" y2="11" stroke="#555" stroke-width="1.5" stroke-linecap="round"/><line x1="44" y1="51" x2="44" y2="58" stroke="#555" stroke-width="1.5" stroke-linecap="round"/><line x1="38" y1="55" x2="50" y2="55" stroke="#555" stroke-width="1.5" stroke-linecap="round"/></svg>`
+  },
+  person: {
+    kw: [],
+    svg: `<svg width="88" height="66" viewBox="0 0 88 66" fill="none"><circle cx="44" cy="16" r="11" fill="#d0d8c8" stroke="#555" stroke-width="1.5"/><path d="M28 62 Q28 36 44 32 Q60 36 60 62 Z" fill="#d0d8c8" stroke="#555" stroke-width="1.5"/><line x1="28" y1="46" x2="16" y2="56" stroke="#555" stroke-width="1.5" stroke-linecap="round"/><line x1="60" y1="46" x2="72" y2="56" stroke="#555" stroke-width="1.5" stroke-linecap="round"/></svg>`
+  }
+};
+
+// ── Arm icons — JAMA Visual Abstract style ─────────────────────
+// JAMA örneğine birebir uygun basit ikonlar
+const ARM_ICONS = {
+  syringe: {
+    kw: ['inject','vaccine','vaccin','subcutaneous','intramuscular','biologic','antibody','monoclonal','dupilumab','adalimumab','etanercept','infliximab','ustekinumab','secukinumab','ixekizumab','risankizumab','guselkumab','tildrakizumab','omalizumab','benralizumab','mepolizumab','insulin','heparin','enoxaparin'],
+    svg: `<svg class="arm-icon" viewBox="0 0 68 68" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="26" y="10" width="16" height="34" rx="2" fill="white" stroke="#1e5c34" stroke-width="2.5"/>
+      <rect x="22" y="10" width="24" height="6" rx="1" fill="#1e5c34"/>
+      <rect x="30" y="4" width="8" height="8" rx="1" fill="#1e5c34"/>
+      <rect x="28" y="18" width="12" height="8" fill="#1e5c34" opacity="0.2"/>
+      <line x1="34" y1="44" x2="34" y2="58" stroke="#1e5c34" stroke-width="3" stroke-linecap="round"/>
+      <path d="M34 64 L30 56 L38 56 Z" fill="#1e5c34"/>
+      <g stroke="#1e5c34" stroke-width="1.5" opacity="0.6">
+        <line x1="42" y1="20" x2="48" y2="20"/><line x1="42" y1="28" x2="48" y2="28"/>
+        <line x1="42" y1="36" x2="48" y2="36"/>
+      </g>
+    </svg>`
+  },
+  infusion: {
+    kw: ['infusion','intravenous','iv drip','iv therapy','immunoglobulin','ivig','rituximab','trastuzumab','bevacizumab','pembrolizumab','nivolumab','chemotherapy'],
+    svg: `<svg class="arm-icon" viewBox="0 0 68 68" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="18" y="10" width="32" height="36" rx="4" fill="white" stroke="#1e5c34" stroke-width="2.5"/>
+      <path d="M34 10 L34 4" stroke="#1e5c34" stroke-width="2.5"/>
+      <circle cx="34" cy="3" r="2.5" fill="#1e5c34"/>
+      <rect x="22" y="18" width="24" height="22" rx="2" fill="#1e5c34" opacity="0.2"/>
+      <line x1="34" y1="46" x2="34" y2="56" stroke="#1e5c34" stroke-width="2.5"/>
+      <rect x="30" y="56" width="8" height="6" rx="2" fill="white" stroke="#1e5c34" stroke-width="2"/>
+      <circle cx="34" cy="62" r="1.5" fill="#1e5c34"/>
+    </svg>`
+  },
+  tablet: {
+    kw: ['oral tablet','tablet','aspirin','metformin','statin','oral medication','oral drug','oral dose','pill','oral','upadacitinib','tofacitinib','baricitinib','abrocitinib','ruxolitinib','apremilast','prednisone','prednisolone'],
+    svg: `<svg class="arm-icon" viewBox="0 0 68 68" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="34" cy="34" r="22" fill="white" stroke="#1e5c34" stroke-width="3"/>
+      <line x1="12" y1="34" x2="56" y2="34" stroke="#1e5c34" stroke-width="2.5"/>
+      <path d="M12.5 34 A21.5 21.5 0 0 1 55.5 34" fill="#1e5c34" opacity="0.25"/>
+    </svg>`
+  },
+  capsule: {
+    kw: ['capsule','oral capsule','gelcap','softgel','antibiotic','azithromycin','doxycycline','amoxicillin','omeprazole','pantoprazole','gabapentin','pregabalin'],
+    svg: `<svg class="arm-icon" viewBox="0 0 68 68" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="22" y="6" width="24" height="56" rx="12" fill="white" stroke="#1e5c34" stroke-width="2.5"/>
+      <path d="M22 34 L22 18 Q22 6 34 6 Q46 6 46 18 L46 34 Z" fill="#1e5c34"/>
+      <line x1="22" y1="34" x2="46" y2="34" stroke="#1e5c34" stroke-width="2"/>
+    </svg>`
+  },
+  pill_bottle: {
+    kw: ['supplement','vitamin','zinc','ascorbic','magnesium','probiotic','mineral','nutraceutical','omega','calcium','iron supplement','folate','folic acid','multivitamin','vitamin d','vitamin b12'],
+    svg: `<svg class="arm-icon" viewBox="0 0 68 68" fill="none">
+      <!-- İlaç şişesi - JAMA style -->
+      <g transform="translate(14, 6)">
+        <rect x="4" y="16" width="32" height="40" rx="4" fill="#e8eddf" stroke="#2c2c2c" stroke-width="2"/>
+        <rect x="0" y="6" width="40" height="12" rx="3" fill="#888" stroke="#2c2c2c" stroke-width="2"/>
+        <rect x="12" y="0" width="16" height="8" rx="2" fill="#666" stroke="#2c2c2c" stroke-width="1.5"/>
+        <line x1="10" y1="28" x2="30" y2="28" stroke="#888" stroke-width="1.5"/>
+        <line x1="10" y1="36" x2="30" y2="36" stroke="#888" stroke-width="1.5"/>
+        <circle cx="15" cy="48" r="4" fill="#d0d8c8" stroke="#888" stroke-width="1"/>
+        <circle cx="25" cy="48" r="4" fill="#d0d8c8" stroke="#888" stroke-width="1"/>
+      </g>
+    </svg>`
+  },
+  liquid_medicine: {
+    kw: ['syrup','oral solution','suspension','elixir','liquid medication','oral liquid','pediatric formulation'],
+    svg: `<svg class="arm-icon" viewBox="0 0 68 68" fill="none">
+      <!-- Şurup şişesi - JAMA style -->
+      <g transform="translate(16, 4)">
+        <rect x="4" y="18" width="28" height="42" rx="4" fill="#e8eddf" stroke="#2c2c2c" stroke-width="2"/>
+        <rect x="10" y="8" width="16" height="12" rx="2" fill="#888" stroke="#2c2c2c" stroke-width="2"/>
+        <rect x="12" y="0" width="12" height="10" rx="2" fill="#666"/>
+        <rect x="8" y="32" width="20" height="24" rx="2" fill="#d0d8c8"/>
+        <ellipse cx="18" cy="38" rx="8" ry="4" fill="#b8c8b8" stroke="#888" stroke-width="0.5"/>
+      </g>
+    </svg>`
+  },
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SOLUNUM YOLU İLAÇLARI
+  // ═══════════════════════════════════════════════════════════════════════════
+  inhaler: {
+    kw: ['inhaler','inhal','nebuliz','bronchodilat','salbutamol','albuterol','salmeterol','formoterol','fluticasone inhaled','budesonide inhaled','metered dose','dry powder','mdi','dpi','turbuhaler','diskus','respimat'],
+    svg: `<svg class="arm-icon" viewBox="0 0 68 68" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="24" y="10" width="20" height="30" rx="4" fill="white" stroke="#1e5c34" stroke-width="2.5"/>
+      <rect x="14" y="38" width="40" height="18" rx="4" fill="#1e5c34" opacity="0.2" stroke="#1e5c34" stroke-width="2.5"/>
+      <rect x="18" y="52" width="32" height="6" rx="2" fill="#1e5c34"/>
+      <path d="M34 10 L26 2" stroke="#1e5c34" stroke-width="2.5" stroke-linecap="round"/>
+      <circle cx="24" cy="0" r="4" fill="#1e5c34" transform="translate(0, 2)"/>
+      <g stroke="#1e5c34" stroke-width="1.5" opacity="0.5">
+        <line x1="44" y1="18" x2="50" y2="18"/><line x1="44" y1="26" x2="50" y2="26"/>
+      </g>
+    </svg>`
+  },
+  nasal_spray: {
+    kw: ['nasal spray','intranasal','nasal corticoster','nasal decongest','fluticasone nasal','mometasone nasal','budesonide nasal','oxymetazoline','azelastine'],
+    svg: `<svg class="arm-icon" viewBox="0 0 68 68" fill="none">
+      <!-- Burun spreyi - JAMA style -->
+      <g transform="translate(16, 4)">
+        <rect x="6" y="18" width="24" height="42" rx="6" fill="#e8eddf" stroke="#2c2c2c" stroke-width="2"/>
+        <rect x="10" y="8" width="16" height="12" rx="3" fill="#888" stroke="#2c2c2c" stroke-width="2"/>
+        <path d="M18 8 L28 0" stroke="#2c2c2c" stroke-width="2" stroke-linecap="round"/>
+        <path d="M28 0 Q32 0 32 4" stroke="#2c2c2c" stroke-width="2" fill="none"/>
+        <circle cx="18" cy="38" r="4" fill="#d0d8c8" stroke="#888" stroke-width="1"/>
+      </g>
+    </svg>`
+  },
+  nebulizer: {
+    kw: ['nebulizer','nebuliser','aerosol therapy','jet nebulizer','ultrasonic nebulizer'],
+    svg: `<svg class="arm-icon" viewBox="0 0 68 68" fill="none">
+      <!-- Nebulizatör - JAMA style -->
+      <g transform="translate(10, 8)">
+        <ellipse cx="24" cy="40" rx="20" ry="12" fill="#e8eddf" stroke="#2c2c2c" stroke-width="2"/>
+        <rect x="16" y="8" width="16" height="24" rx="4" fill="#d0d8c8" stroke="#2c2c2c" stroke-width="2"/>
+        <path d="M24 8 L24 0" stroke="#2c2c2c" stroke-width="2"/>
+        <path d="M40 20 Q52 16 52 8" stroke="#2c2c2c" stroke-width="2" fill="none"/>
+        <ellipse cx="52" cy="6" rx="6" ry="4" fill="#e8eddf" stroke="#2c2c2c" stroke-width="1.5"/>
+      </g>
+    </svg>`
+  },
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // TOPİKAL İLAÇLAR
+  // ═══════════════════════════════════════════════════════════════════════════
+  cream: {
+    kw: ['cream','ointment','topical gel','topical lotion','emollient','corticosteroid cream','tacrolimus topical','calcipotriol','topical retinoid','moisturizer','hydrocortisone','betamethasone','clobetasol','triamcinolone'],
+    svg: `<svg class="arm-icon" viewBox="0 0 68 68" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="14" y="24" width="40" height="32" rx="4" fill="white" stroke="#1e5c34" stroke-width="2.5"/>
+      <rect x="20" y="12" width="28" height="14" rx="3" fill="#1e5c34"/>
+      <rect x="28" y="4" width="12" height="10" rx="2" fill="#1e5c34" opacity="0.7"/>
+      <path d="M24 36 Q34 30 44 36" fill="none" stroke="#1e5c34" stroke-width="2" stroke-linecap="round" opacity="0.4"/>
+      <line x1="22" y1="46" x2="46" y2="46" stroke="#1e5c34" stroke-width="1.5" opacity="0.3"/>
+    </svg>`
+  },
+  patch: {
+    kw: ['patch','transdermal','topical patch','nicotine patch','fentanyl patch','estradiol patch','nitroglycerin patch','buprenorphine patch','lidocaine patch','rotigotine'],
+    svg: `<svg class="arm-icon" viewBox="0 0 68 68" fill="none">
+      <!-- Transdermal yama - JAMA style -->
+      <g transform="translate(8, 14)">
+        <rect x="4" y="4" width="44" height="32" rx="6" fill="#f8f8f8" stroke="#2c2c2c" stroke-width="2"/>
+        <rect x="10" y="10" width="32" height="20" rx="3" fill="#e8eddf" stroke="#888" stroke-width="1"/>
+        <line x1="4" y1="4" x2="48" y2="36" stroke="#ccc" stroke-width="1" stroke-dasharray="3,3"/>
+        <line x1="48" y1="4" x2="4" y2="36" stroke="#ccc" stroke-width="1" stroke-dasharray="3,3"/>
+      </g>
+    </svg>`
+  },
+  eye_drops: {
+    kw: ['eye drop','ophthalmic','ocular','instillat','timolol','latanoprost','dorzolamide','bimatoprost','travoprost','brimonidine','artificial tears','cyclosporine eye'],
+    svg: `<svg class="arm-icon" viewBox="0 0 68 68" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="20" y="12" width="28" height="38" rx="8" fill="white" stroke="#1e5c34" stroke-width="2.5"/>
+      <rect x="26" y="4" width="16" height="10" rx="3" fill="#1e5c34"/>
+      <path d="M34 50 Q28 58 34 64 Q40 58 34 50Z" fill="#1e5c34" opacity="0.3" stroke="#1e5c34" stroke-width="2"/>
+      <circle cx="34" cy="58" r="2" fill="#1e5c34"/>
+    </svg>`
+  },
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // CERRAHİ VE PROSEDÜRLER
+  // ═══════════════════════════════════════════════════════════════════════════
+  surgery: {
+    kw: ['surgery','surgical','operation','operative','laparoscopic','laparotomy','thoracotomy','craniotomy','resection','excision','incision','dissection','anastomosis','transplant','graft'],
+    svg: `<svg class="arm-icon" viewBox="0 0 68 68" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M16 50 L52 14" stroke="#1e5c34" stroke-width="4" stroke-linecap="round"/>
+      <path d="M52 14 L58 8 L64 14 L58 20 Z" fill="#1e5c34"/>
+      <rect x="12" y="46" width="12" height="16" rx="3" fill="white" stroke="#1e5c34" stroke-width="2.5"/>
+      <line x1="18" y1="50" x2="18" y2="58" stroke="#1e5c34" stroke-width="1.5" opacity="0.5"/>
+    </svg>`
+  },
+  endoscopy: {
+    kw: ['endoscopy','endoscopic','colonoscopy','gastroscopy','bronchoscopy','cystoscopy','arthroscopy','laparoscopy','thoracoscopy'],
+    svg: `<svg class="arm-icon" viewBox="0 0 68 68" fill="none">
+      <!-- Endoskop - JAMA style -->
+      <g transform="translate(8, 8)">
+        <circle cx="12" cy="12" r="10" fill="#e8eddf" stroke="#2c2c2c" stroke-width="2"/>
+        <circle cx="12" cy="12" r="5" fill="#888"/>
+        <path d="M20 16 Q36 20 44 36 Q48 48 40 52" stroke="#2c2c2c" stroke-width="3" fill="none" stroke-linecap="round"/>
+        <circle cx="38" cy="52" r="6" fill="#d0d8c8" stroke="#2c2c2c" stroke-width="2"/>
+      </g>
+    </svg>`
+  },
+  stent: {
+    kw: ['stent','angioplasty','pci','percutaneous','coronary intervention','balloon','drug-eluting','bare metal','vascular'],
+    svg: `<svg class="arm-icon" viewBox="0 0 68 68" fill="none">
+      <!-- Stent - JAMA style -->
+      <g transform="translate(10, 10)">
+        <ellipse cx="24" cy="24" rx="20" ry="10" fill="none" stroke="#2c2c2c" stroke-width="2"/>
+        <ellipse cx="24" cy="24" rx="14" ry="6" fill="#e8eddf" stroke="#888" stroke-width="1"/>
+        <line x1="8" y1="18" x2="40" y2="18" stroke="#888" stroke-width="1" stroke-dasharray="2,2"/>
+        <line x1="8" y1="30" x2="40" y2="30" stroke="#888" stroke-width="1" stroke-dasharray="2,2"/>
+        <path d="M4 24 L0 24" stroke="#2c2c2c" stroke-width="2"/>
+        <path d="M44 24 L48 24" stroke="#2c2c2c" stroke-width="2"/>
+      </g>
+    </svg>`
+  },
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // CİHAZLAR VE YARDIMCI ARAÇLAR
+  // ═══════════════════════════════════════════════════════════════════════════
+  pacemaker: {
+    kw: ['pacemaker','defibrillator','icd','crt','cardiac resynchronization','implantable cardioverter'],
+    svg: `<svg class="arm-icon" viewBox="0 0 68 68" fill="none">
+      <!-- Kalp pili - JAMA style -->
+      <g transform="translate(10, 10)">
+        <rect x="4" y="8" width="32" height="28" rx="6" fill="#e8eddf" stroke="#2c2c2c" stroke-width="2"/>
+        <path d="M36 20 L44 16" stroke="#2c2c2c" stroke-width="2" stroke-linecap="round"/>
+        <path d="M36 28 L48 36" stroke="#2c2c2c" stroke-width="2" stroke-linecap="round"/>
+        <circle cx="46" cy="14" r="4" fill="#d0d8c8" stroke="#2c2c2c" stroke-width="1.5"/>
+        <circle cx="50" cy="38" r="4" fill="#d0d8c8" stroke="#2c2c2c" stroke-width="1.5"/>
+        <polyline points="10,22 14,22 16,16 20,28 24,20 28,22 32,22" stroke="#888" stroke-width="1.5" fill="none"/>
+      </g>
+    </svg>`
+  },
+  cpap: {
+    kw: ['cpap','continuous positive airway','bipap','sleep apnea','apnoea','sleep-disordered breathing','mandibular advancement','respiratory support','ventilat','niv','non-invasive ventilation'],
+    svg: `<svg class="arm-icon" viewBox="0 0 68 68" fill="none">
+      <!-- CPAP maskesi - JAMA style -->
+      <g transform="translate(6, 10)">
+        <path d="M8 20 C8 12 18 6 28 6 C38 6 48 12 48 20 L48 36 C48 44 38 48 28 48 C18 48 8 44 8 36 Z" fill="#e8eddf" stroke="#2c2c2c" stroke-width="2"/>
+        <path d="M48 28 L56 28 Q60 28 60 24 L60 18" stroke="#2c2c2c" stroke-width="2" fill="none"/>
+        <line x1="14" y1="30" x2="42" y2="30" stroke="#888" stroke-width="1" stroke-dasharray="3,2"/>
+        <ellipse cx="28" cy="20" rx="10" ry="6" fill="#d0d8c8" stroke="#888" stroke-width="1"/>
+      </g>
+    </svg>`
+  },
+  hearing_aid: {
+    kw: ['hearing aid','hearing device','cochlear implant','bone anchored','auditory','hearing amplification'],
+    svg: `<svg class="arm-icon" viewBox="0 0 68 68" fill="none">
+      <!-- İşitme cihazı - JAMA style -->
+      <g transform="translate(10, 8)">
+        <path d="M24 4 C14 4 8 14 8 26 C8 38 14 48 24 50" fill="none" stroke="#2c2c2c" stroke-width="2.5" stroke-linecap="round"/>
+        <path d="M24 4 C34 4 40 12 40 24 C40 36 36 46 32 50" fill="none" stroke="#2c2c2c" stroke-width="2.5" stroke-linecap="round"/>
+        <ellipse cx="32" cy="52" rx="12" ry="6" fill="#e8eddf" stroke="#2c2c2c" stroke-width="2"/>
+        <circle cx="24" cy="24" r="6" fill="#d0d8c8" stroke="#888" stroke-width="1"/>
+      </g>
+    </svg>`
+  },
+  brace: {
+    kw: ['brace','orthosis','orthotic','splint','cast','immobilization','knee brace','wrist brace','ankle brace','compression stocking','support','stabilizer'],
+    svg: `<svg class="arm-icon" viewBox="0 0 68 68" fill="none">
+      <!-- Ortez/Brace - JAMA style -->
+      <g transform="translate(14, 8)">
+        <rect x="4" y="4" width="32" height="48" rx="6" fill="none" stroke="#2c2c2c" stroke-width="2"/>
+        <line x1="4" y1="20" x2="36" y2="20" stroke="#2c2c2c" stroke-width="2"/>
+        <line x1="4" y1="36" x2="36" y2="36" stroke="#2c2c2c" stroke-width="2"/>
+        <rect x="0" y="14" width="10" height="8" rx="2" fill="#888" stroke="#2c2c2c" stroke-width="1.5"/>
+        <rect x="30" y="14" width="10" height="8" rx="2" fill="#888" stroke="#2c2c2c" stroke-width="1.5"/>
+        <rect x="0" y="30" width="10" height="8" rx="2" fill="#888" stroke="#2c2c2c" stroke-width="1.5"/>
+        <rect x="30" y="30" width="10" height="8" rx="2" fill="#888" stroke="#2c2c2c" stroke-width="1.5"/>
+      </g>
+    </svg>`
+  },
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // TERAPİLER
+  // ═══════════════════════════════════════════════════════════════════════════
+  radiation: {
+    kw: ['radiotherapy','radiation therapy','radiat','brachytherapy','stereotactic','proton beam','gamma knife','cyberknife','imrt','vmat','sbrt'],
+    svg: `<svg class="arm-icon" viewBox="0 0 68 68" fill="none">
+      <!-- Radyasyon - JAMA style -->
+      <g transform="translate(10, 10)">
+        <circle cx="24" cy="24" r="8" fill="#e8eddf" stroke="#2c2c2c" stroke-width="2"/>
+        <circle cx="24" cy="24" r="4" fill="#888"/>
+        <path d="M24 16 L20 4 L28 4 Z" fill="#d0d8c8" stroke="#2c2c2c" stroke-width="1.5"/>
+        <path d="M24 16 L20 4 L28 4 Z" fill="#d0d8c8" stroke="#2c2c2c" stroke-width="1.5" transform="rotate(120 24 24)"/>
+        <path d="M24 16 L20 4 L28 4 Z" fill="#d0d8c8" stroke="#2c2c2c" stroke-width="1.5" transform="rotate(240 24 24)"/>
+      </g>
+    </svg>`
+  },
+  light_therapy: {
+    kw: ['phototherapy','ultraviolet','uv light','blue light','laser therapy','laser treatment','low-level laser','lllt','photobiomodulation','narrow band uvb','puva','excimer'],
+    svg: `<svg class="arm-icon" viewBox="0 0 68 68" fill="none">
+      <!-- Işık terapisi - JAMA style -->
+      <g transform="translate(6, 10)">
+        <rect x="4" y="20" width="48" height="14" rx="4" fill="#e8eddf" stroke="#2c2c2c" stroke-width="2"/>
+        <line x1="12" y1="20" x2="8" y2="6" stroke="#2c2c2c" stroke-width="2" stroke-linecap="round"/>
+        <line x1="22" y1="20" x2="20" y2="4" stroke="#2c2c2c" stroke-width="2" stroke-linecap="round"/>
+        <line x1="28" y1="20" x2="28" y2="2" stroke="#2c2c2c" stroke-width="2" stroke-linecap="round"/>
+        <line x1="34" y1="20" x2="36" y2="4" stroke="#2c2c2c" stroke-width="2" stroke-linecap="round"/>
+        <line x1="44" y1="20" x2="48" y2="6" stroke="#2c2c2c" stroke-width="2" stroke-linecap="round"/>
+        <rect x="12" y="34" width="32" height="18" rx="2" fill="#d0d8c8" stroke="#2c2c2c" stroke-width="1.5"/>
+      </g>
+    </svg>`
+  },
+  exercise: {
+    kw: ['exercise','physical therapy','physiotherapy','rehabilitation','physical activ','aerobic','resistance training','strength training','yoga','pilates','tai chi','walking program','sport','kinesiotherapy'],
+    svg: `<svg class="arm-icon" viewBox="0 0 68 68" fill="none">
+      <!-- Egzersiz/Fizik tedavi - JAMA style -->
+      <g transform="translate(8, 6)">
+        <circle cx="32" cy="8" r="7" fill="#e8eddf" stroke="#2c2c2c" stroke-width="2"/>
+        <path d="M32 15 L32 32" stroke="#2c2c2c" stroke-width="2.5"/>
+        <path d="M32 32 L22 48" stroke="#2c2c2c" stroke-width="2.5" stroke-linecap="round"/>
+        <path d="M32 32 L42 48" stroke="#2c2c2c" stroke-width="2.5" stroke-linecap="round"/>
+        <path d="M26 22 L18 28" stroke="#2c2c2c" stroke-width="2.5" stroke-linecap="round"/>
+        <path d="M32 22 L44 18" stroke="#2c2c2c" stroke-width="2.5" stroke-linecap="round"/>
+        <circle cx="16" cy="30" r="4" fill="#d0d8c8" stroke="#2c2c2c" stroke-width="1.5"/>
+        <circle cx="46" cy="16" r="4" fill="#d0d8c8" stroke="#2c2c2c" stroke-width="1.5"/>
+      </g>
+    </svg>`
+  },
+  repositioning: {
+    kw: ['epley','repositioning','canalith','particle repositioning','brandt-daroff','semont','liberatory','vestibular rehab','canal repositioning','bppv','vertigo maneuver'],
+    svg: `<svg class="arm-icon" viewBox="0 0 68 68" fill="none">
+      <!-- Repozisyon manevrası - JAMA style -->
+      <g transform="translate(8, 6)">
+        <circle cx="26" cy="14" r="12" fill="#e8eddf" stroke="#2c2c2c" stroke-width="2"/>
+        <path d="M16 26 Q2 40 6 52 Q10 60 20 58 L36 56 Q46 54 48 46 Q50 36 38 26" fill="none" stroke="#2c2c2c" stroke-width="2"/>
+        <path d="M42 12 A18 18 0 0 1 48 26" stroke="#888" stroke-width="2" fill="none" stroke-dasharray="3,2"/>
+        <polygon points="48,26 44,20 52,22" fill="#888"/>
+      </g>
+    </svg>`
+  },
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // YAŞAM TARZI VE DAVRANIŞSAL
+  // ═══════════════════════════════════════════════════════════════════════════
+  dietary: {
+    kw: ['dietary','diet intervention','nutrition','caloric restrict','mediterranean','dash diet','low-fat diet','ketogenic','vegan','vegetarian','food','nutritional','weight loss','bariatric'],
+    svg: `<svg class="arm-icon" viewBox="0 0 68 68" fill="none">
+      <!-- Diyet/Beslenme - JAMA style -->
+      <g transform="translate(8, 8)">
+        <circle cx="26" cy="26" r="22" fill="#f8f8f8" stroke="#2c2c2c" stroke-width="2"/>
+        <line x1="26" y1="4" x2="26" y2="48" stroke="#888" stroke-width="1"/>
+        <line x1="4" y1="26" x2="48" y2="26" stroke="#888" stroke-width="1"/>
+        <circle cx="16" cy="16" r="6" fill="#c0ccb8" stroke="#2c2c2c" stroke-width="1"/>
+        <circle cx="36" cy="16" r="6" fill="#c0ccb8" stroke="#2c2c2c" stroke-width="1"/>
+        <circle cx="16" cy="36" r="6" fill="#c0ccb8" stroke="#2c2c2c" stroke-width="1"/>
+        <ellipse cx="38" cy="38" rx="8" ry="6" fill="#d0d8c8" stroke="#2c2c2c" stroke-width="1"/>
+      </g>
+    </svg>`
+  },
+  behavioral: {
+    kw: ['behavioral','behaviour','behavior change','counseling','counselling','coaching','motivational','cognitive','psycholog','education','training program','lifestyle','habit','adherence','compliance','self-efficacy','cbt','dbt','therapy session'],
+    svg: `<svg class="arm-icon" viewBox="0 0 68 68" fill="none">
+      <!-- Davranışsal terapi - JAMA style (konuşan figürler) -->
+      <g transform="translate(6, 8)">
+        <circle cx="18" cy="12" r="8" fill="#e8eddf" stroke="#2c2c2c" stroke-width="2"/>
+        <path d="M18 20 L18 36" stroke="#2c2c2c" stroke-width="2"/>
+        <path d="M18 36 L10 50" stroke="#2c2c2c" stroke-width="2"/>
+        <path d="M18 36 L26 50" stroke="#2c2c2c" stroke-width="2"/>
+        <path d="M12 26 L4 22" stroke="#2c2c2c" stroke-width="2"/>
+        <path d="M24 26 L32 22" stroke="#2c2c2c" stroke-width="2"/>
+        <path d="M34 8 Q42 4 48 8 Q52 12 48 16 L42 14" fill="#d0d8c8" stroke="#2c2c2c" stroke-width="1.5"/>
+      </g>
+    </svg>`
+  },
+  walking: {
+    kw: ['walking','steps','step count','daily steps','ambulation','mobility','gait','pedometer','step goal'],
+    svg: `<svg class="arm-icon" viewBox="0 0 68 68" fill="none">
+      <!-- Yürüyüş - JAMA style -->
+      <g transform="translate(12, 4)">
+        <circle cx="24" cy="8" r="7" fill="#e8eddf" stroke="#2c2c2c" stroke-width="2"/>
+        <path d="M24 15 L24 30" stroke="#2c2c2c" stroke-width="2.5"/>
+        <path d="M24 30 L16 48" stroke="#2c2c2c" stroke-width="2.5" stroke-linecap="round"/>
+        <path d="M24 30 L34 44 L30 58" stroke="#2c2c2c" stroke-width="2.5" stroke-linecap="round"/>
+        <path d="M16 48 L10 60" stroke="#2c2c2c" stroke-width="2.5" stroke-linecap="round"/>
+        <path d="M20 22 L12 28" stroke="#2c2c2c" stroke-width="2.5" stroke-linecap="round"/>
+        <path d="M28 22 L38 26" stroke="#2c2c2c" stroke-width="2.5" stroke-linecap="round"/>
+      </g>
+    </svg>`
+  },
+  goal_setting: {
+    kw: ['goal','target','assigned goal','choice goal','gradual goal','immediate goal','self-chosen','step goal','daily goal','weekly goal','objective','milestone'],
+    svg: `<svg class="arm-icon" viewBox="0 0 68 68" fill="none">
+      <!-- Hedef - JAMA style -->
+      <g transform="translate(10, 10)">
+        <circle cx="24" cy="24" r="22" fill="none" stroke="#2c2c2c" stroke-width="2"/>
+        <circle cx="24" cy="24" r="15" fill="none" stroke="#888" stroke-width="1.5"/>
+        <circle cx="24" cy="24" r="8" fill="none" stroke="#888" stroke-width="1.5"/>
+        <circle cx="24" cy="24" r="4" fill="#1e5c34"/>
+        <line x1="24" y1="2" x2="24" y2="-4" stroke="#2c2c2c" stroke-width="2"/>
+        <polygon points="24,-8 20,0 28,0" fill="#2c2c2c"/>
+      </g>
+    </svg>`
+  },
+  gamification: {
+    kw: ['gamification','gamified','game-based','gaming','points','badges','leaderboard','reward','achievement','challenge','competition','incentive'],
+    svg: `<svg class="arm-icon" viewBox="0 0 68 68" fill="none">
+      <!-- Oyunlaştırma - JAMA style (gamepad) -->
+      <g transform="translate(6, 14)">
+        <rect x="4" y="8" width="48" height="30" rx="8" fill="#e8eddf" stroke="#2c2c2c" stroke-width="2"/>
+        <circle cx="18" cy="23" r="7" fill="#d0d8c8" stroke="#2c2c2c" stroke-width="1.5"/>
+        <circle cx="18" cy="23" r="3" fill="#888"/>
+        <rect x="34" y="17" width="5" height="5" rx="1" fill="#888"/>
+        <rect x="41" y="17" width="5" height="5" rx="1" fill="#888"/>
+        <rect x="34" y="24" width="5" height="5" rx="1" fill="#888"/>
+        <rect x="41" y="24" width="5" height="5" rx="1" fill="#888"/>
+        <line x1="18" y1="8" x2="18" y2="2" stroke="#2c2c2c" stroke-width="2"/>
+        <line x1="38" y1="8" x2="38" y2="2" stroke="#2c2c2c" stroke-width="2"/>
+      </g>
+    </svg>`
+  },
+  mobile_app: {
+    kw: ['app','mobile','smartphone','fitness tracker','accelerometer','digital','text message','sms','notification','reminder','self-monitor','mhealth','ehealth','telemedicine','telehealth'],
+    svg: `<svg class="arm-icon" viewBox="0 0 68 68" fill="none">
+      <!-- Mobil uygulama - JAMA style -->
+      <g transform="translate(16, 6)">
+        <rect x="4" y="4" width="28" height="52" rx="4" fill="#e8eddf" stroke="#2c2c2c" stroke-width="2"/>
+        <rect x="8" y="12" width="20" height="34" rx="2" fill="#f8f8f8" stroke="#888" stroke-width="1"/>
+        <circle cx="18" cy="52" r="3" fill="#888"/>
+        <line x1="12" y1="20" x2="24" y2="20" stroke="#888" stroke-width="1.5"/>
+        <line x1="12" y1="28" x2="20" y2="28" stroke="#888" stroke-width="1.5"/>
+        <polyline points="12,36 16,40 24,30" stroke="#1e5c34" stroke-width="2" stroke-linecap="round" fill="none"/>
+      </g>
+    </svg>`
+  },
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // KONTROL GRUPLARI
+  // ═══════════════════════════════════════════════════════════════════════════
+  standard_care: {
+    kw: ['standard care','usual care','tau','treatment as usual','placebo','control arm','observation','sham','conventional','routine care','watchful waiting','no treatment','conservative','control group','control condition','best supportive care','active surveillance'],
+    svg: `<svg class="arm-icon" viewBox="0 0 68 68" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="10" y="14" width="48" height="44" rx="4" fill="white" stroke="#1e5c34" stroke-width="2.5"/>
+      <text x="34" y="32" text-anchor="middle" font-size="9" fill="#1e5c34" font-family="Arial, sans-serif" font-weight="bold">USUAL</text>
+      <text x="34" y="46" text-anchor="middle" font-size="9" fill="#1e5c34" font-family="Arial, sans-serif" font-weight="bold">CARE</text>
+    </svg>`
+  },
+
+  // Anestezi / Cerrahi ikonları (DBS, makale5)
+  awake_surgery: {
+    kw: ['awake','local anesthesia','awake surgery','awake dbs','conscious sedation'],
+    svg: `<svg class="arm-icon" viewBox="0 0 68 68" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <!-- Göz açık - Awake surgery -->
+      <ellipse cx="34" cy="34" rx="22" ry="14" fill="white" stroke="#1e5c34" stroke-width="2.5"/>
+      <circle cx="34" cy="34" r="8" fill="#1e5c34"/>
+      <circle cx="36" cy="32" r="2" fill="white"/>
+      <path d="M12 34 Q34 18 56 34" stroke="#1e5c34" stroke-width="2" fill="none"/>
+      <path d="M12 34 Q34 50 56 34" stroke="#1e5c34" stroke-width="2" fill="none"/>
+      <text x="34" y="58" text-anchor="middle" font-size="7" fill="#1e5c34" font-family="Arial, sans-serif" font-weight="bold">AWAKE</text>
+    </svg>`
+  },
+  asleep_surgery: {
+    kw: ['asleep','general anesthesia','asleep surgery','asleep dbs','under anesthesia'],
+    svg: `<svg class="arm-icon" viewBox="0 0 68 68" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <!-- Göz kapalı - Asleep surgery + zzz -->
+      <ellipse cx="34" cy="34" rx="22" ry="6" fill="white" stroke="#1e5c34" stroke-width="2.5"/>
+      <path d="M12 34 Q34 42 56 34" stroke="#1e5c34" stroke-width="2.5" fill="none"/>
+      <line x1="24" y1="30" x2="28" y2="26" stroke="#1e5c34" stroke-width="2"/>
+      <line x1="40" y1="30" x2="44" y2="26" stroke="#1e5c34" stroke-width="2"/>
+      <text x="50" y="20" font-size="10" fill="#1e5c34" font-family="Arial, sans-serif" font-weight="bold">z</text>
+      <text x="54" y="14" font-size="8" fill="#1e5c34" font-family="Arial, sans-serif" font-weight="bold">z</text>
+      <text x="34" y="58" text-anchor="middle" font-size="7" fill="#1e5c34" font-family="Arial, sans-serif" font-weight="bold">ASLEEP</text>
+    </svg>`
+  },
+
+  placebo_pill: {
+    kw: ['placebo tablet','placebo capsule','sugar pill','inert','dummy pill'],
+    svg: `<svg class="arm-icon" viewBox="0 0 68 68" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="34" cy="34" r="22" fill="white" stroke="#1e5c34" stroke-width="2.5" stroke-dasharray="6,3"/>
+      <line x1="12" y1="34" x2="56" y2="34" stroke="#1e5c34" stroke-width="2" stroke-dasharray="6,3" opacity="0.5"/>
+      <text x="34" y="38" text-anchor="middle" font-size="14" fill="#1e5c34" font-family="sans-serif" font-weight="bold">P</text>
+    </svg>`
+  },
+  sham: {
+    kw: ['sham procedure','sham surgery','sham device','sham stimulation','sham acupuncture'],
+    svg: `<svg class="arm-icon" viewBox="0 0 68 68" fill="none">
+      <!-- Sham prosedür - JAMA style -->
+      <g transform="translate(10, 10)">
+        <rect x="4" y="4" width="40" height="40" rx="4" fill="#f8f8f8" stroke="#888" stroke-width="2" stroke-dasharray="4,2"/>
+        <line x1="4" y1="4" x2="44" y2="44" stroke="#888" stroke-width="1.5"/>
+        <line x1="44" y1="4" x2="4" y2="44" stroke="#888" stroke-width="1.5"/>
+        <circle cx="24" cy="24" r="10" fill="none" stroke="#2c2c2c" stroke-width="2"/>
+      </g>
+    </svg>`
+  }
+};
+
+function selectPopIcon(studyData) {
+  const hay = [studyData.title_raw || '', studyData.journal || '',
+               (studyData.population && studyData.population.description) || '',
+               (studyData.settings && studyData.settings.description) || '',
+               (studyData.primary_outcome && studyData.primary_outcome.description) || '']
+    .join(' ').toLowerCase();
+
+  console.log('[DEBUG selectPopIcon] hay:', hay.substring(0, 200));
+
+  // ÖNCELİK: Pediatric/youth populations
+  if (/youth|adolescent|teenage|pediatric|paediatric|child|infant|neonatal|newborn/i.test(hay)) {
+    console.log('[DEBUG selectPopIcon] Matched: pediatric/youth');
+    return MEDICAL_ICONS.baby.svg;
+  }
+
+  // ÖNCELİK: Mental health studies
+  if (/anxiety|depression|mental\s*health|psychiatric|psycholog/i.test(hay)) {
+    console.log('[DEBUG selectPopIcon] Matched: mental health');
+    return MEDICAL_ICONS.mental_health.svg;
+  }
+
+  for (const [, icon] of Object.entries(MEDICAL_ICONS)) {
+    if (!icon.kw.length) continue;
+    if (icon.kw.some(kw => hay.includes(kw))) return icon.svg;
+  }
+  console.log('[DEBUG selectPopIcon] No match, using default person');
+  return MEDICAL_ICONS.person.svg;
+}
+
+function selectArmIcon(arm, studyData, index) {
+  const label = (arm.label || '').toLowerCase();
+  const desc = (arm.description || '').toLowerCase();
+  const title = (studyData.title_raw || '').toLowerCase();
+  const hay = [label, desc, title].join(' ');
+
+  console.log('[DEBUG selectArmIcon] arm', index, 'label:', label, '| hay:', hay.substring(0, 100));
+  console.log('[DEBUG selectArmIcon] motivational test:', /motivational/i.test(hay));
+  console.log('[DEBUG selectArmIcon] usual care test:', /usual\s*care/i.test(hay));
+
+  // ÖNCELİK 0: Parser tarafından işaretlenen özel flagler
+  if (arm.isStandardCare) {
+    return ARM_ICONS.standard_care.svg;
+  }
+  if (arm.isTherapeutic && (hay.includes('heparin') || hay.includes('lmwh') || hay.includes('enoxaparin'))) {
+    return ARM_ICONS.syringe.svg;
+  }
+  // Awake/Asleep DBS surgery (makale5 GALAXY trial)
+  if (arm.isAwake) {
+    return ARM_ICONS.awake_surgery.svg;
+  }
+  if (arm.isAsleep) {
+    return ARM_ICONS.asleep_surgery.svg;
+  }
+
+  // ÖNCELİK 1: Route bilgisine göre ikon seç (parser'dan gelen)
+  if (arm.route) {
+    const routeMap = {
+      'oral': ARM_ICONS.tablet.svg,
+      'subcutaneous': ARM_ICONS.syringe.svg,
+      'intravenous': ARM_ICONS.infusion.svg,
+      'intramuscular': ARM_ICONS.syringe.svg,
+      'inhaled': ARM_ICONS.inhaler.svg,
+      'topical': ARM_ICONS.cream.svg,
+      'intranasal': ARM_ICONS.nasal_spray.svg
+    };
+    if (routeMap[arm.route]) return routeMap[arm.route];
+  }
+
+  // ÖNCELİK 2: "Control" tek başına standard_care ikonu almalı
+  if (/^control$/i.test(arm.label?.trim())) {
+    return ARM_ICONS.standard_care.svg;
+  }
+
+  // ÖNCELİK 2.5: Usual care / TAU / standard care / placebo - LABEL'da kontrol et (title'dan önce)
+  // Label'da "usual care", "TAU", "standard care", "placebo" varsa standard_care ikonu
+  const labelAndDesc = label + ' ' + desc;
+  if (/usual\s*care|treatment\s+as\s+usual|\btau\b|standard\s*care|placebo|control\s+group|sham|waitlist|wait\s*list/i.test(labelAndDesc)) {
+    console.log('[DEBUG selectArmIcon] Matched standard_care for arm', index, '(label check)');
+    return ARM_ICONS.standard_care.svg;
+  }
+
+  // ÖNCELİK 2.6: Behavioral/counseling interventions (MI, CBT, therapy) - LABEL'da kontrol et
+  if (/motivational|counseling|counselling|psychotherapy|cbt|cognitive.?behav|therapy\s+session/i.test(labelAndDesc)) {
+    console.log('[DEBUG selectArmIcon] Matched behavioral for arm', index, '(label check)');
+    return ARM_ICONS.behavioral.svg;
+  }
+
+  // ÖNCELİK 3: Keyword bazlı eşleştirme
+  for (const [key, icon] of Object.entries(ARM_ICONS)) {
+    if (icon.kw.some(kw => hay.includes(kw))) return icon.svg;
+  }
+
+  // Fallback - farklı ikonlar kullan (daha fazla çeşitlilik)
+  const fallbackIcons = [
+    ARM_ICONS.tablet.svg,
+    ARM_ICONS.capsule.svg,
+    ARM_ICONS.behavioral.svg,
+    ARM_ICONS.device.svg,
+    ARM_ICONS.exercise.svg
+  ];
+  return fallbackIcons[index % fallbackIcons.length];
+}
+
+// 4+ arm için tek çalışma ikonu seç
+function selectStudyIcon(arms, studyData) {
+  // Tüm arm label ve description'larını birleştir
+  const allText = [
+    studyData.title_raw || '',
+    ...arms.map(a => (a.label || '') + ' ' + (a.description || ''))
+  ].join(' ').toLowerCase();
+
+  // Öncelik sırasına göre eşleştir
+  const iconPriority = [
+    { key: 'gamification', test: /gamification|gamified|game-based|gaming|leaderboard|badge|achievement/ },
+    { key: 'walking', test: /step count|daily steps|walking|physical activity|pedometer|activity/ },
+    { key: 'mobile_app', test: /app|smartphone|wearable|fitness tracker|digital|mobile/ },
+    { key: 'goal_setting', test: /goal|target|assigned|choice|gradual|immediate/ },
+    { key: 'behavioral', test: /behavioral|behaviour|counseling|coaching|lifestyle|habit/ },
+    { key: 'exercise', test: /exercise|physical therapy|rehabilitation|aerobic|strength|yoga/ },
+    { key: 'dietary', test: /diet|nutrition|caloric|mediterranean|vegan|food/ },
+    { key: 'repositioning', test: /epley|repositioning|canalith|vestibular|brandt-daroff/ },
+    { key: 'syringe', test: /inject|vaccine|subcutaneous|intramuscular|biologic|antibody/ },
+    { key: 'infusion', test: /infusion|intravenous|iv drip|rituximab/ },
+    { key: 'tablet', test: /tablet|oral|aspirin|metformin|statin|pill/ },
+    { key: 'capsule', test: /capsule|antibiotic|azithromycin|amoxicillin/ },
+    { key: 'radiation', test: /radiotherapy|radiation|brachytherapy/ },
+    { key: 'surgery_arm', test: /surgery|surgical|laparoscopic|operative/ },
+    { key: 'device', test: /pacemaker|defibrillator|implant|stent|neurostimulat/ },
+  ];
+
+  for (const { key, test } of iconPriority) {
+    if (test.test(allText) && ARM_ICONS[key]) {
+      // SVG'yi arms-list-icon class'ı ile döndür
+      return ARM_ICONS[key].svg.replace('class="arm-icon"', 'class="arms-list-icon"');
+    }
+  }
+
+  // Fallback - genel çalışma ikonu (wearable device)
+  return `<svg class="arms-list-icon" viewBox="0 0 60 60" fill="none">
+    <rect x="15" y="8" width="30" height="44" rx="4" stroke="#555" stroke-width="1.5" fill="none"/>
+    <rect x="20" y="14" width="20" height="16" rx="2" stroke="#555" stroke-width="1" fill="#e8f4e8"/>
+    <line x1="22" y1="35" x2="38" y2="35" stroke="#555" stroke-width="1"/>
+    <line x1="22" y1="40" x2="32" y2="40" stroke="#555" stroke-width="1"/>
+    <path d="M12 20 Q8 30 12 40" stroke="#555" stroke-width="1.5" fill="none"/>
+    <path d="M48 20 Q52 30 48 40" stroke="#555" stroke-width="1.5" fill="none"/>
+  </svg>`;
+}
+
+// ── Tab switching ─────────────────────────────────────────────────────────
+function switchTab(name) {
+  document.getElementById('tab-upload').style.display = name === 'upload' ? '' : 'none';
+  document.getElementById('tab-paste').style.display  = name === 'paste'  ? '' : 'none';
+  document.querySelectorAll('.tab-btn').forEach((b, i) => {
+    b.classList.toggle('active', (i === 0 && name === 'upload') || (i === 1 && name === 'paste'));
+  });
+}
+
+// ── Paste abstract mode ───────────────────────────────────────────────────
+async function processPastedText() {
+  const text = document.getElementById('abstract-input').value.trim();
+  if (!text) { setStatus('Metin boş — abstract yapıştırın.', 'error'); return; }
+  setStatus('Metin analiz ediliyor...');
+  await processRawText(text);
+}
+
+// ── Helpers ──────────────────────────────────────────────────────────────
+function setStatus(msg, type) {
+  const el = document.getElementById('status');
+  el.textContent = msg;
+  el.className = type || '';
+}
+
+function unph(id, html, isHtml) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.classList.remove('ph');
+  if (isHtml) el.innerHTML = html;
+  else        el.textContent = html;
+}
+
+// ── PDF → plain text ─────────────────────────────────────────────────────
+async function extractPdfText(arrayBuffer) {
+  if (typeof pdfjsLib === 'undefined') {
+    throw new Error('PDF.js yüklenemedi. Ağ bağlantısını kontrol edin.');
+  }
+  const pdf   = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+  const pages = [];
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page    = await pdf.getPage(i);
+    const content = await page.getTextContent();
+    pages.push(content.items.map(item => item.str).join(' '));
+  }
+  const raw = pages.join('\n');
+  return preprocessText(raw);
+}
+
+// ── PDF'den figür görsellerini çıkar ─────────────────────────────────────
+async function extractPdfFigures(arrayBuffer) {
+  if (typeof pdfjsLib === 'undefined') return [];
+
+  const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+  const figures = [];
+  const processedFigures = new Set();
+
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    const content = await page.getTextContent();
+    const pageText = content.items.map(item => item.str).join(' ');
+
+    // Gerçek figür caption'ı ara (noktalı ve başlıklı)
+    const figCaptionRegex = /Figure\s+(\d+)\.\s*([A-Z][A-Za-z0-9\s,\-()]{3,100})/gi;
+    const captionMatches = [...pageText.matchAll(figCaptionRegex)];
+
+    if (captionMatches.length === 0) continue;
+
+    const scale = 2.0;
+    const viewport = page.getViewport({ scale: scale });
+    const canvas = document.createElement('canvas');
+    canvas.width = viewport.width;
+    canvas.height = viewport.height;
+    const ctx = canvas.getContext('2d');
+
+    await page.render({ canvasContext: ctx, viewport: viewport }).promise;
+
+    // Tüm text item'ları canvas koordinatlarıyla birlikte topla
+    const pageHeight = viewport.height / scale;
+    const textItems = content.items.map(item => ({
+      text: item.str,
+      pdfY: item.transform[5],
+      pdfX: item.transform[4],
+      canvasY: (pageHeight - item.transform[5]) * scale,
+      canvasX: item.transform[4] * scale,
+      width: item.width || 0,
+      height: item.height || 10
+    }));
+
+    for (const captionMatch of captionMatches) {
+      const figNum = captionMatch[1];
+      const figTitle = captionMatch[2].trim();
+
+      if (processedFigures.has(figNum)) continue;
+      processedFigures.add(figNum);
+
+      // Caption item'ı bul
+      let captionItem = textItems.find(t =>
+        t.text.trim().match(new RegExp(`^Figure\\s*${figNum}\\.`, 'i'))
+      );
+      if (!captionItem) {
+        captionItem = textItems.find(t =>
+          t.text.trim().match(new RegExp(`^Figure\\s*${figNum}\\b`, 'i'))
+        );
+      }
+      if (!captionItem) continue;
+
+      // Figürün alt sınırını bul: body text'in başladığı yer
+      // Body text özellikleri:
+      // - Küçük harfle başlar VEYA
+      // - Uzun cümle yapısı (15+ karakter, noktalama içerir)
+      // - Caption'dan sonra (daha aşağıda) gelir
+      // - Sol margin'e yakın (sayfa genişliğinin solunda)
+
+      const captionCanvasY = captionItem.canvasY;
+      const leftMarginThreshold = viewport.width * 0.15; // Sol %15 içinde
+
+      // Caption'ın altındaki text item'ları filtrele
+      const itemsBelowCaption = textItems
+        .filter(t => t.canvasY > captionCanvasY + 30) // Caption'dan en az 30px aşağıda
+        .filter(t => t.canvasX < leftMarginThreshold) // Sol margin'de
+        .filter(t => t.text.trim().length > 10) // Kısa snippet'leri atla
+        .sort((a, b) => a.canvasY - b.canvasY); // Yukarıdan aşağıya sırala
+
+      // İlk body text paragrafını bul
+      let bodyTextY = null;
+      for (const item of itemsBelowCaption) {
+        const txt = item.text.trim();
+        // Body text göstergeleri:
+        // - Küçük harfle başlar (devam eden cümle)
+        // - "The ", "In ", "A ", "This " gibi cümle başları
+        // - Sayfa numarası değil (4+ karakter)
+        // - Section başlığı değil (tamamen büyük harf değil)
+        const isBodyText = (
+          /^[a-z]/.test(txt) || // Küçük harfle başlıyor
+          /^(The|In|A|An|This|These|We|It|As|For|To|Of|With|During|After|Before|However|Although|Because)\s/i.test(txt) ||
+          /^was\s|^were\s|^is\s|^are\s|^had\s|^have\s/i.test(txt) // Devam eden cümle
+        ) && txt.length > 15 && !/^[A-Z\s]+$/.test(txt); // Tamamı büyük harf değil
+
+        if (isBodyText) {
+          bodyTextY = item.canvasY;
+          console.log(`Figure ${figNum}: Body text bulundu Y=${bodyTextY.toFixed(0)}: "${txt.substring(0, 40)}..."`);
+          break;
+        }
+      }
+
+      // Figür caption'ının ÜSTÜNDE mi ALTINDA mı olduğunu belirle
+      // Caption'dan AŞAĞI bak - grafik var mı?
+      // Grafik göstergeleri: sayısal eksen değerleri (5000, 6000, 7000...), "Week", axis labels
+
+      const itemsBelowCaptionAll = textItems
+        .filter(t => t.canvasY > captionCanvasY + 20)
+        .sort((a, b) => a.canvasY - b.canvasY);
+
+      // Grafik altında mı üstünde mi kontrol et
+      // Sayısal eksen değerleri veya "Week" gibi axis label'ları ara
+      let hasChartBelow = false;
+      for (const item of itemsBelowCaptionAll.slice(0, 20)) {
+        const txt = item.text.trim();
+        // Eksen değerleri: sayılar (5000, 6000, 100, 0, 1, 2...)
+        // Axis label'ları: Week, Day, Month, Time, Age, Score, etc.
+        if (/^[\d,]+$/.test(txt) || /^(Week|Day|Month|Time|Year|Age|Score|No\.|Steps|Mean|Median)s?$/i.test(txt)) {
+          hasChartBelow = true;
+          break;
+        }
+      }
+
+      let cropY, cropBottom;
+      const cropX = 30;
+      const cropW = viewport.width - 60;
+
+      if (hasChartBelow) {
+        // Grafik caption'ın ALTINDA - caption'dan başla, body text'e kadar git
+        // Caption'ın biraz üstünden başla (kırmızı çizgiyi dahil et)
+        cropY = Math.max(0, captionCanvasY - 40);
+
+        if (bodyTextY !== null) {
+          cropBottom = bodyTextY - 30;
+        } else {
+          // Body text bulunamadı - sayfanın %85'ine kadar al
+          cropBottom = Math.min(viewport.height - 60, captionCanvasY + 800);
+        }
+        console.log(`Figure ${figNum}: Grafik caption'ın ALTINDA`);
+      } else {
+        // Grafik caption'ın ÜSTÜNDE (klasik layout)
+        const topMargin = 60;
+        cropY = topMargin;
+        cropBottom = captionCanvasY + 40; // Caption'ı da dahil et
+        console.log(`Figure ${figNum}: Grafik caption'ın ÜSTÜNDE`);
+      }
+
+      const cropH = Math.max(200, cropBottom - cropY);
+
+      console.log(`Figure ${figNum} kırpma: Y=${cropY}-${cropBottom.toFixed(0)}, H=${cropH.toFixed(0)}, captionY=${captionCanvasY.toFixed(0)}`);
+
+      if (cropH > 150 && cropH < viewport.height * 0.85) {
+        const cropCanvas = document.createElement('canvas');
+        cropCanvas.width = cropW;
+        cropCanvas.height = cropH;
+        const cropCtx = cropCanvas.getContext('2d');
+
+        try {
+          cropCtx.drawImage(canvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+
+          figures.push({
+            number: parseInt(figNum),
+            title: figTitle,
+            pageNum: i,
+            dataUrl: cropCanvas.toDataURL('image/png', 0.92)
+          });
+          console.log(`Figure ${figNum} başarıyla çıkarıldı: "${figTitle}" (sayfa ${i})`);
+        } catch (e) {
+          console.warn('Figür kırpma hatası:', e);
+        }
+      }
+    }
+  }
+
+  figures.sort((a, b) => a.number - b.number);
+  return figures;
+}
+
+// ── PDF metin ön işleme ──────────────────────────────────────────────────
+function preprocessText(text) {
+  return text
+    // Tirelenen satır sonu kelimeleri birleştir: "random-\nized" → "randomized"
+    .replace(/-\s*\n\s*/g, '')
+    // Çoklu boşlukları tek boşluğa indir
+    .replace(/[ \t]{2,}/g, ' ')
+    // Sayı+harf arasındaki boşluğu koru ama gereksiz boşlukları temizle
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+// ── Render VA ────────────────────────────────────────────────────────────
+function renderVA(data) {
+  document.getElementById('va-output').style.display = 'block';
+  window.scrollTo({ top: document.getElementById('va-output').offsetTop - 16, behavior: 'smooth' });
+
+  // Journal: önce data.journal, yoksa citation.journal kullan
+  const journalName = data.journal || (data.citation && data.citation.journal) || 'JAMA';
+  // "JAMA Neurol" → "JAMA Neurology" gibi kısa isimleri uzat
+  const journalExpand = {
+    'JAMA Neurol': 'JAMA Neurology',
+    'JAMA Intern Med': 'JAMA Internal Medicine',
+    'JAMA Ophthalmol': 'JAMA Ophthalmology',
+    'JAMA Otolaryngol': 'JAMA Otolaryngology',
+    'JAMA Surg': 'JAMA Surgery',
+    'JAMA Pediatr': 'JAMA Pediatrics',
+    'JAMA Dermatol': 'JAMA Dermatology',
+    'JAMA Cardiol': 'JAMA Cardiology',
+    'JAMA Oncol': 'JAMA Oncology',
+    'JAMA Psychiatry': 'JAMA Psychiatry',
+    'JAMA Netw Open': 'JAMA Network Open'
+  };
+  const fullJournal = journalExpand[journalName] || journalName;
+  unph('va-journal', fullJournal);
+
+  if (data.study_type)  unph('va-study-type', data.study_type + ':');
+  if (data.title_raw)   unph('va-title-text', ' ' + data.title_raw);
+
+  const p = data.population || {};
+  if (p.n_male != null && p.n_female != null)
+    unph('va-pop-count', p.n_male + ' Men, ' + p.n_female + ' Women');
+  const popIconEl = document.getElementById('pop-illus');
+  if (popIconEl) popIconEl.innerHTML = selectPopIcon(data);
+  if (p.description) unph('va-pop-desc', p.description);
+  if (p.mean_age) {
+    let ageLabel;
+    if (p.mean_age_sd) {
+      ageLabel = 'Mean (SD) age, ' + p.mean_age.replace(/\s*y$/, '') + ' (' + p.mean_age_sd + ') y';
+      if (p.age_range) ageLabel += ' (range, ' + p.age_range + ')';
+    } else {
+      ageLabel = p.age_range ? 'Mean age, ' + p.mean_age + ' (range, ' + p.age_range + ')' : 'Mean (SD) age, ' + p.mean_age;
+    }
+    unph('va-pop-age', ageLabel, false);
+  } else if (p.median_age) {
+    const ageLabel = p.age_range ? 'Median age, ' + p.median_age + ' (range, ' + p.age_range + ')' : 'Median age, ' + p.median_age;
+    unph('va-pop-age', ageLabel, false);
+  }
+
+  const ivData = data.intervention || {};
+  const iv = ivData.arms || [];
+  if (iv.length) {
+    const nR = ivData.n_randomized;
+    const nA = ivData.n_analyzed;
+    const nTotal = ivData.total_n || iv.reduce((s, a) => s + (a.n || 0), 0);
+    let totalLabel;
+    if (nR && nA && nR !== nA) {
+      totalLabel = '<strong>' + nR + '</strong> Participants randomized, <strong>' + nA + '</strong> analyzed';
+    } else {
+      totalLabel = '<strong>' + (nR || nTotal) + '</strong> Patients randomized and analyzed';
+    }
+    unph('va-int-total', totalLabel, true);
+
+    // Use list format for 4+ arms (JAMA style), icon boxes for 2-3 arms
+    if (iv.length >= 4) {
+      // Renkler - JAMA tarzı
+      const colors = ['#1a5276', '#c0392b', '#27ae60', '#8e44ad', '#e67e22', '#16a085'];
+      const listItems = iv.map((arm, i) => {
+        const lbl = arm.label || arm.description || '';
+        const color = colors[i % colors.length];
+        return `<li style="--bullet-color: ${color}">
+          <span class="arm-n">${arm.n != null ? arm.n : '–'}</span>
+          <span class="arm-name">${lbl}</span>
+        </li>`;
+      }).join('');
+
+      // Çalışma türüne göre ikon seç
+      const studyIcon = selectStudyIcon(iv, data);
+
+      unph('va-arms', `<div class="arms-list-wrap">${studyIcon}<ul class="arms-list">${listItems}</ul></div>`, true);
+      document.getElementById('va-arms').className = '';
+    } else {
+      // Icon boxes for 2-3 arms
+      const rowClass = 'arms-row';
+      console.log('[DEBUG] Rendering arms:', iv.map(a => ({label: a.label, route: a.route, detail: a.detailed_description})));
+      unph('va-arms', iv.map((arm, i) => {
+        const lbl  = arm.label || arm.description || '';
+        // detailed_description varsa onu kullan (doz, frekans, route bilgisi içerir)
+        const detailedDesc = arm.detailed_description || '';
+        const desc = detailedDesc || ((arm.description && arm.description !== arm.label) ? arm.description : '');
+        const icon = selectArmIcon(arm, data, i);
+        console.log('[DEBUG] Arm', i, ':', lbl, '| route:', arm.route, '| icon length:', icon.length);
+        return `<div class="arm-box">
+          ${icon}
+          <div class="arm-info">
+            <span class="arm-n">${arm.n != null ? arm.n : '–'}</span>
+            <span class="arm-name">${lbl}</span>
+            ${desc ? `<span class="arm-detail">${desc}</span>` : ''}
+          </div>
+        </div>`;
+      }).join(''), true);
+      document.getElementById('va-arms').className = rowClass;
+    }
+  }
+
+  const f = data.findings || {};
+  console.log('[DEBUG] findings.chart_data:', f.chart_data);
+  if (f.summary) {
+    let html = f.summary.replace(/\b([Pp]\s*[=<>≤≥]\s*\.?\d[\d.]*)\b/g, '<i>$1</i>');
+    if (f.p_value && !html.includes(f.p_value)) html += ' (<i>' + f.p_value + '</i>)';
+    unph('va-findings-text', html, true);
+  }
+  if (f.chart_data && f.chart_data.datasets && f.chart_data.datasets.length) {
+    console.log('[DEBUG] Drawing chart with data:', f.chart_data.datasets);
+    const unit = (f.chart_data.y_label || '').replace(/.*,\s*/, '');
+    const hdr = `<b style="font-size:9px;color:#444;display:block;margin-bottom:3px">${f.chart_data.y_label || 'Primary outcome'}</b>`;
+
+    // Special handling for comparison type (change vs control with 95% CI)
+    if (f.chart_data.type === 'comparison') {
+      const rows = f.chart_data.datasets.map(ds => {
+        const ci = ds.ci_low != null && ds.ci_high != null ? ` (95% CI, ${ds.ci_low} to ${ds.ci_high})` : '';
+        const pVal = ds.p_value ? `; <i>${ds.p_value}</i>` : '';
+        return `<div style="margin-bottom:6px">
+          <span style="font-weight:700;font-size:10px;color:#111">${ds.label}</span><br>
+          <span style="font-size:10px">Change: <b style="color:var(--green)">${ds.mean}</b>${ci}${pVal}</span>
+        </div>`;
+      }).join('');
+      unph('va-findings-bullets', hdr + rows, true);
+      drawChart(f.chart_data);  // Draw comparison chart
+    } else if (f.chart_data.type === 'line') {
+      // Line chart with baseline-to-followup values
+      const xLabels = f.chart_data.x_labels || ['Baseline', 'Follow-up'];
+      const rows = f.chart_data.datasets.map(ds => {
+        const vals = ds.values && ds.values.length >= 2
+          ? `${xLabels[0]}: <b>${ds.values[0]}</b> → ${xLabels[xLabels.length - 1]}: <b>${ds.values[ds.values.length - 1]}</b>`
+          : '–';
+        return `<span style="display:inline-block;min-width:108px;font-weight:700;font-size:9.5px">${ds.label}</span><span style="font-size:9.5px">${vals}</span>`;
+      }).join('<br>');
+      unph('va-findings-bullets', hdr + rows, true);
+      drawChart(f.chart_data);
+    } else {
+      // Bar chart with mean/SD or percentages
+      const isPercentage = (f.chart_data.y_label || '').toLowerCase().includes('%');
+      const rows = f.chart_data.datasets.map(ds => {
+        const meanStr = ds.mean != null ? ds.mean.toFixed(1) : '–';
+        const sdStr   = ds.sd   != null ? ds.sd.toFixed(1)   : null;
+        let val, prefix;
+        if (isPercentage) {
+          // Yüzde verisi - "29.0 %" formatında göster
+          val = meanStr + (unit ? ' ' + unit : ' %');
+          prefix = '';
+        } else if (sdStr) {
+          // Mean (SD) verisi
+          val = `${meanStr} (${sdStr})${unit ? ' ' + unit : ''}`;
+          prefix = 'Mean (SD), ';
+        } else {
+          val = meanStr + (unit ? ' ' + unit : '');
+          prefix = '';
+        }
+        return `<span style="display:inline-block;min-width:108px;font-weight:700;font-size:9.5px">${ds.label}</span><span style="font-size:9.5px">${prefix}${val}</span>`;
+      }).join('<br>');
+      unph('va-findings-bullets', hdr + rows, true);
+      drawChart(f.chart_data);
+    }
+  } else if (f.results && f.results.length) {
+    unph('va-findings-bullets',
+      f.results.map(r => `${r.arm ? r.arm + ': ' : ''}${r.metric ? r.metric + ', ' : ''}${r.value || '–'}`).join('<br>'),
+      true);
+  }
+
+  // Relative risks / Odds ratios göster (sadece primary outcome - ilk RR/OR)
+  const rrContainer = document.getElementById('va-relative-risks');
+  if (f.relative_risks && f.relative_risks.length > 0 && rrContainer) {
+    // Primary outcome için ilk RR/OR'ı göster
+    const rr = f.relative_risks[0];
+    const ciStr = rr.ci_low && rr.ci_high
+      ? `<span class="rr-ci">(95% CI, ${rr.ci_low}-${rr.ci_high})</span>`
+      : '';
+    const pStr = rr.p_value
+      ? `<span class="rr-p">; ${rr.p_value}</span>`
+      : '';
+    // Type'a göre label oluştur
+    let label = rr.label || (rr.type === 'OR' ? 'Odds ratio' : 'Relative risk');
+    if (rr.type === 'OR' && label === 'Odds ratio') {
+      label = 'Odds ratio for primary outcome';
+    }
+    const rrHtml = `<div class="rr-label">${label}:</div>
+            <div><span class="rr-value">${rr.value}</span> ${ciStr}${pStr}</div>`;
+    rrContainer.innerHTML = rrHtml;
+    rrContainer.style.display = 'block';
+  }
+
+  // PDF'den çıkarılan figürleri göster - SADECE chart_data yoksa
+  // chart_data varsa hesaplanan bar chart daha doğru (primary outcome yüzdeleri)
+  const hasChartData = f.chart_data && f.chart_data.datasets && f.chart_data.datasets.length > 0;
+  console.log('[DEBUG] hasChartData:', hasChartData, '| _pdfFigures:', window._pdfFigures?.length || 0);
+
+  if (!hasChartData && window._pdfFigures && window._pdfFigures.length > 0) {
+    console.log('[DEBUG] Showing PDF figure instead of chart');
+    // Figure 2 veya 3'ü bul (genellikle ana sonuç grafiği), yoksa ilkini kullan
+    const mainFig = window._pdfFigures.find(f => f.number === 2)
+                 || window._pdfFigures.find(f => f.number === 3)
+                 || window._pdfFigures[0];
+
+    if (mainFig) {
+      const chartWrap = document.getElementById('va-chart-wrap');
+      const chartPh = document.getElementById('va-chart-ph');
+      const chartCanvas = document.getElementById('va-chart');
+
+      if (chartWrap) {
+        // Canvas'ı gizle, PDF figürünü göster
+        if (chartCanvas) chartCanvas.style.display = 'none';
+        if (chartPh) chartPh.style.display = 'none';
+
+        // Figür görselini ekle
+        let figImg = document.getElementById('va-pdf-figure');
+        if (!figImg) {
+          figImg = document.createElement('img');
+          figImg.id = 'va-pdf-figure';
+          chartWrap.appendChild(figImg);
+        }
+        figImg.src = mainFig.dataUrl;
+        figImg.alt = 'Figure ' + mainFig.number + ': ' + mainFig.title;
+        figImg.title = mainFig.title;
+
+        // Figür başlığını göster
+        const figCaption = document.createElement('div');
+        figCaption.style.cssText = 'font-size:9px;color:#555;text-align:center;margin-top:4px;';
+        figCaption.textContent = 'Figure ' + mainFig.number + '. ' + mainFig.title;
+
+        // Eski caption varsa kaldır
+        const oldCaption = chartWrap.querySelector('.pdf-fig-caption');
+        if (oldCaption) oldCaption.remove();
+        figCaption.className = 'pdf-fig-caption';
+        chartWrap.appendChild(figCaption);
+      }
+    }
+  }
+
+  const s = data.settings || {};
+  if (s.description)
+    unph('va-settings', s.description.replace(/\s+in\s+/i, '<br>in '), true);
+
+  const po = data.primary_outcome || {};
+  if (po.description) unph('va-primary-outcome', po.description);
+
+  const c = data.citation || {};
+  const cit = [c.authors, c.title, c.journal, c.published, c.doi].filter(Boolean).join(' ');
+  if (cit) unph('va-citation', cit);
+
+  // Review flags
+  const flags = data.review_flags || [];
+  const fbox  = document.getElementById('review-flags');
+  if (flags.length) {
+    fbox.style.display = 'block';
+    fbox.innerHTML = '<b>⚠ Düşük güven — lütfen doğrula:</b> ' +
+      flags.map(f => `<span class="flag-badge">${f}</span>`).join('');
+  } else {
+    fbox.style.display = 'none';
+  }
+
+  // Export panelini göster
+  showExportPanel();
+}
+
+// ── Bar chart with error bars ─────────────────────────────────────────────
+function abbreviateLabel(label) {
+  const l = label.toLowerCase();
+  if (l.includes('usual care') || l.includes('standard of care') || l.includes('standard care')) return 'Usual care';
+  if (l.includes('both') || l.includes('combination') || (l.includes('zinc') && l.includes('ascorb'))) return 'Both';
+  if (l.includes('ascorb')) return 'Asc acid';
+  if (l.includes('zinc')) return 'Zinc';
+  if (l.includes('placebo')) return 'Placebo';
+  if (l.includes('control')) return 'Control';
+  if (l.length <= 10) return label.charAt(0).toUpperCase() + label.slice(1);
+  // Two-word abbreviation: first letters capitalised
+  const words = label.trim().split(/\s+/);
+  if (words.length >= 2) return words.slice(0, 2).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+  return label.slice(0, 9) + '…';
+}
+
+function drawChart(cd) {
+  const phEl  = document.getElementById('va-chart-ph');
+  const canvas = document.getElementById('va-chart');
+  if (!canvas || !cd) return;
+  phEl.style.display  = 'none';
+  canvas.style.display = 'block';
+
+  const W = canvas.parentElement.clientWidth || 330;
+  const H = 170;
+  canvas.width  = W;
+  canvas.height = H;
+
+  const ctx = canvas.getContext('2d');
+
+  // ── Bar chart (type === 'bar') ──────────────────────────────────────────
+  if (cd.type === 'bar') {
+    const datasets = cd.datasets || [];
+    const n = datasets.length;
+    if (!n) return;
+
+    const pad = { top: 20, right: 14, bottom: 38, left: 36 };
+    const pw  = W - pad.left - pad.right;
+    const ph2 = H - pad.top  - pad.bottom;
+
+    const maxVal = Math.max(...datasets.map(d => (d.mean || 0) + (d.sd || 0)));
+    const rawMax = maxVal * 1.18;
+    const step   = rawMax <= 6 ? 1 : rawMax <= 12 ? 2 : rawMax <= 20 ? 5 : 10;
+    const yMax   = Math.ceil(rawMax / step) * step;
+
+    const BAR_GAP = 6;
+    const barW    = Math.max(24, (pw - BAR_GAP * (n - 1)) / n);
+    const totalW  = barW * n + BAR_GAP * (n - 1);
+    const startX  = pad.left + (pw - totalW) / 2;
+
+    const COLORS = ['#1e5c34', '#4a8b5c', '#7fbf7f', '#afd4af', '#d0e8d0'];
+
+    ctx.clearRect(0, 0, W, H);
+
+    // Grid + Y-axis ticks
+    ctx.font = '8px Arial';
+    const gridSteps = Math.min(5, yMax / step);
+    for (let i = 0; i <= gridSteps; i++) {
+      const v = (i / gridSteps) * yMax;
+      const y = pad.top + ph2 - (v / yMax) * ph2;
+      ctx.strokeStyle = '#e0e0e0'; ctx.lineWidth = 0.6;
+      ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(pad.left + pw, y); ctx.stroke();
+      ctx.fillStyle = '#777'; ctx.textAlign = 'right';
+      ctx.fillText(Number.isInteger(v) ? v : v.toFixed(1), pad.left - 4, y + 3);
+    }
+
+    // Axes
+    ctx.strokeStyle = '#555'; ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(pad.left, pad.top);
+    ctx.lineTo(pad.left, pad.top + ph2);
+    ctx.lineTo(pad.left + pw, pad.top + ph2);
+    ctx.stroke();
+
+    // Y-axis label (rotated)
+    ctx.save();
+    ctx.translate(9, pad.top + ph2 / 2);
+    ctx.rotate(-Math.PI / 2);
+    ctx.font = '7.5px Arial'; ctx.fillStyle = '#555'; ctx.textAlign = 'center';
+    ctx.fillText(cd.y_label || '', 0, 0);
+    ctx.restore();
+
+    // Bars + error bars + labels
+    datasets.forEach((ds, i) => {
+      const x    = startX + i * (barW + BAR_GAP);
+      const midX = x + barW / 2;
+      const bH   = ((ds.mean || 0) / yMax) * ph2;
+      const barTop = pad.top + ph2 - bH;
+
+      ctx.fillStyle = COLORS[i % COLORS.length];
+      ctx.fillRect(x, barTop, barW, bH);
+
+      // Error bar (±SD)
+      if (ds.sd) {
+        const errH  = (ds.sd / yMax) * ph2;
+        const capHW = Math.min(5, barW * 0.2);
+        ctx.strokeStyle = '#333'; ctx.lineWidth = 1.2;
+        ctx.beginPath();
+        ctx.moveTo(midX, Math.max(pad.top, barTop - errH));
+        ctx.lineTo(midX, Math.min(pad.top + ph2, barTop + errH));
+        ctx.stroke();
+        // Top cap
+        const topCapY = Math.max(pad.top, barTop - errH);
+        ctx.beginPath(); ctx.moveTo(midX - capHW, topCapY); ctx.lineTo(midX + capHW, topCapY); ctx.stroke();
+        // Bottom cap (only if above baseline)
+        if (barTop + errH < pad.top + ph2) {
+          const botCapY = barTop + errH;
+          ctx.beginPath(); ctx.moveTo(midX - capHW, botCapY); ctx.lineTo(midX + capHW, botCapY); ctx.stroke();
+        }
+      }
+
+      // Value label above upper error cap
+      const labelY = ds.sd
+        ? Math.max(pad.top + 8, pad.top + ph2 - ((ds.mean + ds.sd) / yMax) * ph2 - 3)
+        : barTop - 3;
+      ctx.font = '7.5px Arial'; ctx.fillStyle = '#111'; ctx.textAlign = 'center';
+      ctx.fillText((ds.mean || 0).toFixed(1), midX, labelY);
+
+      // X-axis arm label (abbreviated, possibly 2 lines)
+      const lbl = abbreviateLabel(ds.label || '');
+      const words = lbl.split(' ');
+      ctx.font = '7px Arial'; ctx.fillStyle = '#444'; ctx.textAlign = 'center';
+      if (words.length >= 2 && barW < 60) {
+        ctx.fillText(words.slice(0, Math.ceil(words.length / 2)).join(' '), midX, pad.top + ph2 + 12);
+        ctx.fillText(words.slice(Math.ceil(words.length / 2)).join(' '),    midX, pad.top + ph2 + 21);
+      } else {
+        ctx.fillText(lbl, midX, pad.top + ph2 + 14);
+      }
+    });
+
+    return;
+  }
+
+  // ── Comparison chart (horizontal bar with CI) ────────────────────────────
+  if (cd.type === 'comparison') {
+    const datasets = cd.datasets || [];
+    if (!datasets.length) return;
+
+    const pad = { top: 30, right: 20, bottom: 30, left: 20 };
+    const pw = W - pad.left - pad.right;
+    const ph2 = H - pad.top - pad.bottom;
+
+    // Find max value for scale
+    const maxVal = Math.max(...datasets.map(d => (d.ci_high || d.mean || 0)));
+    const minVal = Math.min(0, ...datasets.map(d => (d.ci_low || 0)));
+    const range = maxVal - minVal;
+    const scale = pw / (range * 1.2);
+    const zeroX = pad.left + Math.abs(minVal) * scale * 1.1;
+
+    ctx.clearRect(0, 0, W, H);
+
+    // Title
+    ctx.font = 'bold 10px Arial';
+    ctx.fillStyle = '#333';
+    ctx.textAlign = 'center';
+    ctx.fillText(cd.y_label || 'Change vs Control', W / 2, 16);
+
+    // Zero line
+    ctx.strokeStyle = '#999';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([3, 3]);
+    ctx.beginPath();
+    ctx.moveTo(zeroX, pad.top);
+    ctx.lineTo(zeroX, H - pad.bottom);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Draw bars for each dataset
+    const barH = Math.min(40, (ph2 - 20) / datasets.length);
+    const barGap = 10;
+
+    datasets.forEach((ds, i) => {
+      const y = pad.top + 10 + i * (barH + barGap);
+      const mean = ds.mean || 0;
+      const ciLow = ds.ci_low || mean;
+      const ciHigh = ds.ci_high || mean;
+
+      // Bar
+      const barX = zeroX;
+      const barW = mean * scale;
+      ctx.fillStyle = mean >= 0 ? '#27ae60' : '#c0392b';
+      ctx.fillRect(barX, y, barW, barH);
+
+      // CI error bar
+      if (ds.ci_low != null && ds.ci_high != null) {
+        const errLeft = zeroX + ciLow * scale;
+        const errRight = zeroX + ciHigh * scale;
+        const midY = y + barH / 2;
+
+        ctx.strokeStyle = '#333';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(errLeft, midY);
+        ctx.lineTo(errRight, midY);
+        ctx.stroke();
+
+        // Caps
+        ctx.beginPath();
+        ctx.moveTo(errLeft, midY - 6);
+        ctx.lineTo(errLeft, midY + 6);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(errRight, midY - 6);
+        ctx.lineTo(errRight, midY + 6);
+        ctx.stroke();
+      }
+
+      // Value label
+      ctx.font = 'bold 11px Arial';
+      ctx.fillStyle = '#111';
+      ctx.textAlign = mean >= 0 ? 'left' : 'right';
+      const labelX = barX + barW + (mean >= 0 ? 8 : -8);
+      ctx.fillText(mean.toFixed(0), labelX, y + barH / 2 + 4);
+
+      // Arm label below
+      ctx.font = '9px Arial';
+      ctx.fillStyle = '#555';
+      ctx.textAlign = 'center';
+      ctx.fillText(ds.label || '', W / 2, y + barH + 12);
+
+      // P-value
+      if (ds.p_value) {
+        ctx.font = 'italic 9px Arial';
+        ctx.fillStyle = '#666';
+        ctx.textAlign = 'right';
+        ctx.fillText(ds.p_value, W - pad.right, y + barH / 2 + 4);
+      }
+    });
+
+    // X-axis label
+    ctx.font = '8px Arial';
+    ctx.fillStyle = '#777';
+    ctx.textAlign = 'center';
+    ctx.fillText('0', zeroX, H - 10);
+
+    return;
+  }
+
+  // ── Line chart (type === 'line') ─────────────────────────────────────────
+  if (cd.type === 'line') {
+    const datasets = cd.datasets || [];
+    const xLabels = cd.x_labels || ['Baseline', 'Follow-up'];
+    const n = datasets.length;
+    if (!n) return;
+
+    const pad = { top: 24, right: 80, bottom: 36, left: 44 };
+    const pw = W - pad.left - pad.right;
+    const ph2 = H - pad.top - pad.bottom;
+
+    // Find max/min values across all datasets
+    let maxVal = 0, minVal = Infinity;
+    datasets.forEach(ds => {
+      if (ds.values && ds.values.length) {
+        ds.values.forEach(v => { maxVal = Math.max(maxVal, v); minVal = Math.min(minVal, v); });
+      }
+    });
+    minVal = Math.floor(minVal / 5) * 5;
+    maxVal = Math.ceil(maxVal / 5) * 5;
+    const range = maxVal - minVal || 10;
+
+    ctx.clearRect(0, 0, W, H);
+
+    // Grid + Y-axis ticks
+    ctx.font = '8px Arial';
+    const gridSteps = 5;
+    for (let i = 0; i <= gridSteps; i++) {
+      const v = minVal + (i / gridSteps) * range;
+      const y = pad.top + ph2 - ((v - minVal) / range) * ph2;
+      ctx.strokeStyle = '#e0e0e0'; ctx.lineWidth = 0.6;
+      ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(pad.left + pw, y); ctx.stroke();
+      ctx.fillStyle = '#777'; ctx.textAlign = 'right';
+      ctx.fillText(Number.isInteger(v) ? v : v.toFixed(1), pad.left - 4, y + 3);
+    }
+
+    // Axes
+    ctx.strokeStyle = '#555'; ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(pad.left, pad.top);
+    ctx.lineTo(pad.left, pad.top + ph2);
+    ctx.lineTo(pad.left + pw, pad.top + ph2);
+    ctx.stroke();
+
+    // X-axis labels
+    xLabels.forEach((lbl, i) => {
+      const x = pad.left + (i / Math.max(xLabels.length - 1, 1)) * pw;
+      ctx.fillStyle = '#555'; ctx.textAlign = 'center';
+      ctx.fillText(lbl, x, pad.top + ph2 + 14);
+    });
+
+    // Y-axis label (rotated)
+    ctx.save();
+    ctx.translate(11, pad.top + ph2 / 2);
+    ctx.rotate(-Math.PI / 2);
+    ctx.font = '8px Arial'; ctx.fillStyle = '#555'; ctx.textAlign = 'center';
+    ctx.fillText(cd.y_label || 'Score', 0, 0);
+    ctx.restore();
+
+    // Draw lines and points
+    const COLORS = ['#1e5c34', '#2980b9', '#e67e22', '#8e44ad'];
+    datasets.forEach((ds, di) => {
+      if (!ds.values || !ds.values.length) return;
+      const col = COLORS[di % COLORS.length];
+
+      // Draw line
+      ctx.strokeStyle = col; ctx.lineWidth = 2;
+      ctx.beginPath();
+      ds.values.forEach((v, i) => {
+        const x = pad.left + (i / Math.max(xLabels.length - 1, 1)) * pw;
+        const y = pad.top + ph2 - ((v - minVal) / range) * ph2;
+        i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+
+      // Draw points
+      ctx.fillStyle = col;
+      ds.values.forEach((v, i) => {
+        const x = pad.left + (i / Math.max(xLabels.length - 1, 1)) * pw;
+        const y = pad.top + ph2 - ((v - minVal) / range) * ph2;
+        ctx.beginPath(); ctx.arc(x, y, 4, 0, Math.PI * 2); ctx.fill();
+        // Value label
+        ctx.fillStyle = '#333'; ctx.font = '7.5px Arial'; ctx.textAlign = 'center';
+        ctx.fillText(v.toFixed(1), x, y - 8);
+        ctx.fillStyle = col;
+      });
+
+      // Legend label at the end
+      const lastV = ds.values[ds.values.length - 1];
+      const lx = pad.left + pw + 6;
+      const ly = pad.top + ph2 - ((lastV - minVal) / range) * ph2;
+      ctx.fillStyle = col; ctx.font = '8px Arial'; ctx.textAlign = 'left';
+      ctx.fillText(ds.label || '', lx, ly + 3);
+    });
+
+    return;
+  }
+
+  // ── Line chart fallback (legacy) ─────────────────────────────────────────
+  const pad = { top: 18, right: 90, bottom: 28, left: 38 };
+  const pw  = W - pad.left - pad.right;
+  const ph2 = H - pad.top  - pad.bottom;
+  const labels   = cd.labels   || [];
+  const datasets = cd.datasets || [];
+
+  ctx.clearRect(0, 0, W, H);
+  ctx.font = '8.5px Arial';
+
+  ctx.strokeStyle = '#ddd'; ctx.lineWidth = 0.8;
+  [0,20,40,60,80,100].forEach(v => {
+    const y = pad.top + ph2 - (v/100)*ph2;
+    ctx.beginPath(); ctx.moveTo(pad.left,y); ctx.lineTo(pad.left+pw,y); ctx.stroke();
+    ctx.fillStyle = '#555'; ctx.textAlign = 'right';
+    ctx.fillText(v, pad.left - 4, y+3);
+  });
+
+  ctx.strokeStyle = '#555'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(pad.left, pad.top);
+  ctx.lineTo(pad.left, pad.top+ph2); ctx.lineTo(pad.left+pw, pad.top+ph2); ctx.stroke();
+
+  labels.forEach((l,i) => {
+    const x = pad.left + (i/Math.max(labels.length-1,1))*pw;
+    ctx.fillStyle='#555'; ctx.textAlign='center';
+    ctx.fillText(l, x, pad.top+ph2+13);
+  });
+
+  ctx.save(); ctx.translate(9, pad.top+ph2/2); ctx.rotate(-Math.PI/2);
+  ctx.font='7.5px Arial'; ctx.fillStyle='#555'; ctx.textAlign='center';
+  ctx.fillText(cd.y_label||'Proportion of patients, %', 0, 0);
+  ctx.restore();
+
+  const COLORS = ['#1e5c34','#888'];
+  datasets.forEach((ds,di) => {
+    if (!ds.data||!ds.data.length) return;
+    const col = COLORS[di%COLORS.length];
+    ctx.strokeStyle=col; ctx.lineWidth=1.6;
+    ctx.beginPath();
+    ds.data.forEach((v,i)=>{
+      const x=pad.left+(i/Math.max(labels.length-1,1))*pw;
+      const y=pad.top+ph2-(v/100)*ph2;
+      i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);
+    });
+    ctx.stroke();
+    ctx.fillStyle=col;
+    ds.data.forEach((v,i)=>{
+      const x=pad.left+(i/Math.max(labels.length-1,1))*pw;
+      const y=pad.top+ph2-(v/100)*ph2;
+      ctx.beginPath(); ctx.arc(x,y,3,0,Math.PI*2); ctx.fill();
+    });
+    const lv=ds.data[ds.data.length-1];
+    const lx=pad.left+pw+4, ly=pad.top+ph2-(lv/100)*ph2;
+    ctx.fillStyle='#333'; ctx.font='7.5px Arial'; ctx.textAlign='left';
+    ctx.fillText((ds.label||'')+(ds.n?` (n=${ds.n})`:''), lx, ly+3);
+  });
+}
+
+// ── Ortak metin işleme (PDF veya paste) ──────────────────────────────────
+async function processRawText(text) {
+  if (typeof JamaVA === 'undefined') {
+    setStatus('Paket yüklenemedi (JamaVA undefined). dist/ build yapıldı mı?', 'error');
+    return;
+  }
+  let studyData = JamaVA.parseText(text);
+  console.log('[DEBUG] parseText title_raw:', studyData.title_raw);
+
+  // Block enrichment: title, settings, primary_outcome içeriklerini iyileştir
+  try {
+    const deck = await JamaVA.generate({ input: studyData, blocks: ['all'], inputFormat: 'json' });
+    if (deck && deck.blocks) {
+      if (deck.blocks.title && deck.blocks.title.content)
+        studyData.title_raw = deck.blocks.title.content;
+      if (deck.blocks.settings && !deck.blocks.settings.missing)
+        studyData.settings = { description: deck.blocks.settings.content };
+      if (deck.blocks.primary_outcome && !deck.blocks.primary_outcome.missing)
+        studyData.primary_outcome = { description: deck.blocks.primary_outcome.content };
+    }
+  } catch(e) { /* block enrichment optional */ }
+
+  showDebug(studyData);
+  renderVA(studyData);
+}
+
+// ── Process uploaded file ─────────────────────────────────────────────────
+async function processFile(file) {
+  setStatus('Dosya okunuyor: ' + file.name);
+  const ext = file.name.split('.').pop().toLowerCase();
+
+  try {
+    if (ext === 'json') {
+      const text = await file.text();
+      const studyData = JSON.parse(text);
+      setStatus('JSON parse edildi.', 'ok');
+      showDebug(studyData);
+      renderVA(studyData);
+
+    } else if (ext === 'pdf') {
+      setStatus('PDF okunuyor...');
+      if (typeof pdfjsLib === 'undefined') {
+        setStatus('PDF.js yüklenemedi — internet bağlantısı gerekli.', 'error');
+        return;
+      }
+      const buf     = await file.arrayBuffer();
+      // ArrayBuffer'ı klonla - PDF.js kullandıktan sonra detached oluyor
+      const bufCopy = buf.slice(0);
+
+      const rawText = await extractPdfText(buf);
+
+      // PDF ham metnini göster
+      const wrap = document.getElementById('pdf-text-wrap');
+      const pre  = document.getElementById('pdf-raw-text');
+      if (wrap && pre) {
+        wrap.style.display = '';
+        pre.textContent = rawText.slice(0, 3000) + (rawText.length > 3000 ? '\n... (kısaltıldı)' : '');
+      }
+
+      // Figürleri çıkar (klonlanmış buffer ile)
+      setStatus('PDF figürleri çıkarılıyor...');
+      try {
+        window._pdfFigures = await extractPdfFigures(bufCopy);
+        console.log('Çıkarılan figürler:', window._pdfFigures?.length || 0);
+      } catch (e) {
+        console.warn('Figür çıkarma hatası:', e);
+        window._pdfFigures = [];
+      }
+
+      setStatus('PDF metni çıkarıldı, analiz ediliyor...');
+      await processRawText(rawText);
+      setStatus('PDF analiz edildi.', 'ok');
+
+    } else {
+      const text = await file.text();
+      setStatus('Metin analiz ediliyor...');
+      await processRawText(text);
+      setStatus('Analiz tamamlandı.', 'ok');
+    }
+
+  } catch (err) {
+    setStatus('Hata: ' + err.message, 'error');
+    console.error(err);
+  }
+}
+
+function showDebug(data) {
+  const dbPanel = document.getElementById('debug-panel');
+  const dbJson  = document.getElementById('debug-json');
+  if (dbPanel && dbJson) {
+    dbPanel.style.display = 'block';
+    dbJson.textContent = JSON.stringify(data, null, 2);
+  }
+}
+
+// ── File input / drag-drop wiring ─────────────────────────────────────────
+const dropZone  = document.getElementById('drop-zone');
+const fileInput = document.getElementById('file-input');
+
+fileInput.addEventListener('change', () => {
+  if (fileInput.files[0]) processFile(fileInput.files[0]);
+});
+
+dropZone.addEventListener('dragover', e => {
+  e.preventDefault();
+  dropZone.classList.add('drag-over');
+});
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropZone.classList.remove('drag-over');
+  const file = e.dataTransfer.files[0];
+  if (file) processFile(file);
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// EXPORT FUNCTIONS - PNG and PDF
+// ══════════════════════════════════════════════════════════════════════════
+
+async function exportToPNG() {
+  const statusEl = document.getElementById('export-status');
+  const vaEl = document.getElementById('va');
+
+  if (!vaEl) {
+    statusEl.textContent = 'Hata: Visual Abstract bulunamadı';
+    return;
+  }
+
+  statusEl.textContent = 'PNG oluşturuluyor...';
+
+  try {
+    const canvas = await html2canvas(vaEl, {
+      scale: 2,
+      backgroundColor: '#ffffff',
+      logging: false,
+      useCORS: true
+    });
+
+    const link = document.createElement('a');
+    link.download = 'visual-abstract.png';
+    link.href = canvas.toDataURL('image/png');
+    link.click();
+
+    statusEl.textContent = 'PNG başarıyla indirildi!';
+    setTimeout(() => { statusEl.textContent = ''; }, 3000);
+  } catch (err) {
+    console.error('PNG export hatası:', err);
+    statusEl.textContent = 'Hata: PNG oluşturulamadı - ' + err.message;
+  }
+}
+
+async function exportToPDF() {
+  const statusEl = document.getElementById('export-status');
+  const vaEl = document.getElementById('va');
+
+  if (!vaEl) {
+    statusEl.textContent = 'Hata: Visual Abstract bulunamadı';
+    return;
+  }
+
+  statusEl.textContent = 'PDF oluşturuluyor...';
+
+  try {
+    const canvas = await html2canvas(vaEl, {
+      scale: 2,
+      backgroundColor: '#ffffff',
+      logging: false,
+      useCORS: true
+    });
+
+    const imgData = canvas.toDataURL('image/png');
+    const { jsPDF } = window.jspdf;
+
+    // A4 boyutu: 210 x 297 mm
+    const pdf = new jsPDF({
+      orientation: 'portrait',
+      unit: 'mm',
+      format: 'a4'
+    });
+
+    const pageWidth = 210;
+    const pageHeight = 297;
+    const margin = 10;
+
+    // Canvas oranını koru
+    const canvasWidth = canvas.width;
+    const canvasHeight = canvas.height;
+    const ratio = canvasHeight / canvasWidth;
+
+    const imgWidth = pageWidth - (margin * 2);
+    const imgHeight = imgWidth * ratio;
+
+    // Resmi ortala
+    const x = margin;
+    const y = (pageHeight - imgHeight) / 2;
+
+    pdf.addImage(imgData, 'PNG', x, y > margin ? y : margin, imgWidth, imgHeight);
+    pdf.save('visual-abstract.pdf');
+
+    statusEl.textContent = 'PDF başarıyla indirildi!';
+    setTimeout(() => { statusEl.textContent = ''; }, 3000);
+  } catch (err) {
+    console.error('PDF export hatası:', err);
+    statusEl.textContent = 'Hata: PDF oluşturulamadı - ' + err.message;
+  }
+}
+
+// Export panelini VA render edildikten sonra göster
+function showExportPanel() {
+  const exportPanel = document.getElementById('export-panel');
+  if (exportPanel) {
+    exportPanel.classList.add('visible');
+  }
+}
+</script>
+</body>
+</html>

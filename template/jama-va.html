@@ -1,0 +1,672 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>JAMA Visual Abstract</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+  --green:    #1e5c34;
+  --cell-bg:  #e8eddf;
+  --white:    #ffffff;
+  --txt:      #111111;
+  --txt-med:  #333333;
+  --font:     'Helvetica Neue', Helvetica, Arial, sans-serif;
+  --ph-color: #b0b8a8;
+}
+
+body {
+  background: #c8c8c8;
+  padding: 28px;
+  display: flex;
+  justify-content: center;
+  min-height: 100vh;
+}
+
+/* ── WRAPPER ── */
+.va {
+  width: 920px;
+  font-family: var(--font);
+  box-shadow: 0 4px 24px rgba(0,0,0,0.28);
+  background: var(--cell-bg);
+}
+
+/* ── HEADER ── */
+.va-header {
+  background: var(--green);
+  color: #fff;
+  padding: 13px 20px;
+  font-size: 28px;
+  font-weight: 800;
+  letter-spacing: 0.3px;
+  line-height: 1;
+}
+
+/* ── TITLE BAR ── */
+.va-title {
+  background: var(--white);
+  padding: 9px 20px 8px;
+  font-size: 15px;
+  line-height: 1.25;
+}
+.va-title .study-type { color: var(--green); font-weight: 800; }
+.va-title .title-text { font-weight: 700; color: var(--txt); }
+
+/* ── MAIN 3-COL ── */
+.va-main {
+  display: grid;
+  grid-template-columns: 268px 268px 1fr;
+}
+
+/* ── BOTTOM 2-COL ── */
+.va-bottom {
+  display: grid;
+  grid-template-columns: 268px 1fr;
+  border-top: 3px solid var(--white);
+}
+
+/* ── CELL ── */
+.cell {
+  background: var(--cell-bg);
+  padding: 14px 16px;
+  border-right: 3px solid var(--white);
+  border-top: 3px solid var(--white);
+  min-height: 0;
+}
+.cell:last-child { border-right: none; }
+.cell-white { background: var(--white); }
+
+/* ── SECTION LABEL ── */
+.sec-lbl {
+  color: var(--green);
+  font-weight: 900;
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.9px;
+  margin-bottom: 8px;
+}
+
+/* ════════════════════════════════════════════
+   POPULATION
+════════════════════════════════════════════ */
+.pop-count {
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--txt);
+  margin-bottom: 10px;
+  line-height: 1.15;
+}
+.pop-illus {
+  margin: 6px 0 10px;
+}
+.pop-desc {
+  font-size: 10.5px;
+  color: var(--txt-med);
+  line-height: 1.45;
+}
+.pop-age {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--txt);
+  margin-top: 7px;
+  line-height: 1.35;
+}
+
+/* ════════════════════════════════════════════
+   INTERVENTION
+════════════════════════════════════════════ */
+.int-total {
+  font-size: 12px;
+  color: var(--txt);
+  margin-bottom: 12px;
+  line-height: 1.3;
+}
+.int-total strong { font-size: 15px; font-weight: 800; }
+
+.arms-row {
+  display: flex;
+  gap: 8px;
+  justify-content: space-around;
+}
+.arm-box {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+.arm-icon { width: 68px; height: 68px; }
+.arm-info {
+  font-size: 10.5px;
+  color: var(--txt-med);
+  text-align: center;
+  line-height: 1.4;
+}
+.arm-n    { color: var(--green); font-weight: 800; font-size: 13px; display: block; }
+.arm-name { font-weight: 700; color: var(--txt); display: block; }
+
+/* ════════════════════════════════════════════
+   FINDINGS
+════════════════════════════════════════════ */
+.findings-sum {
+  font-size: 10.5px;
+  color: var(--txt-med);
+  line-height: 1.45;
+  margin-bottom: 9px;
+}
+.chart-wrap {
+  width: 100%;
+  height: 170px;
+  position: relative;
+  margin-bottom: 9px;
+}
+.chart-ph {
+  width: 100%;
+  height: 100%;
+  border: 1.5px dashed #ccc;
+  background: #f5f5f5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #bbb;
+  font-size: 12px;
+  border-radius: 2px;
+}
+#va-chart {
+  position: absolute;
+  top: 0; left: 0;
+  width: 100% !important;
+  height: 100% !important;
+  display: none;
+}
+.findings-bullets {
+  font-size: 10px;
+  color: var(--txt-med);
+  line-height: 1.65;
+}
+
+/* ════════════════════════════════════════════
+   SETTINGS
+════════════════════════════════════════════ */
+.settings-inner {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 6px;
+}
+.settings-icon { width: 50px; height: 50px; flex-shrink: 0; }
+.settings-txt {
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--txt);
+  line-height: 1.3;
+}
+
+/* ════════════════════════════════════════════
+   PRIMARY OUTCOME
+════════════════════════════════════════════ */
+.outcome-txt {
+  font-size: 12px;
+  color: var(--txt-med);
+  line-height: 1.45;
+  margin-top: 4px;
+}
+
+/* ════════════════════════════════════════════
+   FOOTER
+════════════════════════════════════════════ */
+.va-footer {
+  background: var(--cell-bg);
+  padding: 9px 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 12px;
+  border-top: 3px solid var(--white);
+}
+.citation {
+  font-size: 9px;
+  color: #444;
+  line-height: 1.5;
+  font-style: italic;
+}
+.ama-lbl {
+  font-size: 9px;
+  color: #666;
+  white-space: nowrap;
+  flex-shrink: 0;
+  padding-bottom: 1px;
+}
+
+/* ── PLACEHOLDER tint ── */
+.ph { color: var(--ph-color) !important; }
+</style>
+</head>
+<body>
+
+<div class="va" id="va">
+
+  <!-- HEADER -->
+  <div class="va-header ph" id="va-journal">JAMA</div>
+
+  <!-- TITLE -->
+  <div class="va-title">
+    <span class="study-type ph" id="va-study-type">RCT:</span>
+    <span class="title-text ph" id="va-title-text"> Çalışma Başlığı Buraya Gelecek</span>
+  </div>
+
+  <!-- MAIN ROW -->
+  <div class="va-main">
+
+    <!-- ─── POPULATION ─── -->
+    <div class="cell" id="cell-pop">
+      <div class="sec-lbl">Population</div>
+
+      <div class="pop-count ph" id="va-pop-count">N Men, N Women</div>
+
+      <div class="pop-illus" id="va-pop-icon">
+        <!--
+          Skin / tissue cross-section icon (JAMA sketch style)
+          3-D block showing skin layers with a lesion on top.
+        -->
+        <svg width="88" height="66" viewBox="0 0 88 66" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <!-- Block sides (3-D perspective) -->
+          <polygon points="10,15 78,15 88,5 20,5" fill="#d8ddd2" stroke="#555" stroke-width="1.2"/>
+          <polygon points="78,15 88,5 88,55 78,65" fill="#c8cec2" stroke="#555" stroke-width="1.2"/>
+          <!-- Front face -->
+          <rect x="10" y="15" width="68" height="50" fill="#e0e5d8" stroke="#555" stroke-width="1.2"/>
+          <!-- Layer lines -->
+          <line x1="10" y1="29" x2="78" y2="29" stroke="#888" stroke-width="0.9" stroke-dasharray="4,2"/>
+          <line x1="10" y1="42" x2="78" y2="42" stroke="#888" stroke-width="0.9" stroke-dasharray="4,2"/>
+          <!-- Lesion on top face -->
+          <ellipse cx="44" cy="10" rx="10" ry="5" fill="#666" stroke="#333" stroke-width="1"/>
+          <!-- Texture dots -->
+          <circle cx="25" cy="36" r="2" fill="#aaa"/>
+          <circle cx="50" cy="33" r="2" fill="#aaa"/>
+          <circle cx="65" cy="38" r="2" fill="#aaa"/>
+        </svg>
+      </div>
+
+      <div class="pop-desc ph" id="va-pop-desc">
+        Çalışmaya alınan hasta grubunun tanımı (yaş aralığı, tanı kriterleri vb.)
+      </div>
+      <div class="pop-age ph" id="va-pop-age">Mean (SD) age, – y</div>
+    </div>
+
+    <!-- ─── INTERVENTION ─── -->
+    <div class="cell" id="cell-int">
+      <div class="sec-lbl">Intervention</div>
+      <div class="int-total ph" id="va-int-total">
+        <strong>–</strong> Patients randomized and analyzed
+      </div>
+      <div class="arms-row ph" id="va-arms">
+
+        <!-- Arm 1 placeholder: syringe -->
+        <div class="arm-box">
+          <svg class="arm-icon" viewBox="0 0 68 68" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <!-- needle tips -->
+            <line x1="58" y1="10" x2="63" y2="5"  stroke="#555" stroke-width="2"   stroke-linecap="round"/>
+            <line x1="60" y1="8"  x2="55" y2="13" stroke="#555" stroke-width="1.5" stroke-linecap="round"/>
+            <!-- barrel diagonal body -->
+            <path d="M16 52 L50 18" stroke="#555" stroke-width="1.5"/>
+            <!-- barrel rectangle -->
+            <path d="M19 56 L23 52 L55 20 L51 16 Z" stroke="#555" stroke-width="1.5" fill="#e8eddf"/>
+            <!-- graduation marks -->
+            <line x1="34" y1="33" x2="30" y2="37" stroke="#888" stroke-width="1"/>
+            <line x1="39" y1="28" x2="35" y2="32" stroke="#888" stroke-width="1"/>
+            <line x1="44" y1="23" x2="40" y2="27" stroke="#888" stroke-width="1"/>
+            <!-- plunger end -->
+            <rect x="13" y="50" width="8" height="4" rx="1" transform="rotate(-45 17 52)" fill="#555"/>
+            <!-- needle tip dot -->
+            <circle cx="7" cy="61" r="3" fill="#555"/>
+            <line x1="10" y1="58" x2="16" y2="52" stroke="#555" stroke-width="2.5" stroke-linecap="round"/>
+          </svg>
+          <div class="arm-info">
+            <span class="arm-n">–</span>
+            <span class="arm-name">Kol 1</span>
+            <span>Uygulama açıklaması</span>
+          </div>
+        </div>
+
+        <!-- Arm 2 placeholder: capsule/pill -->
+        <div class="arm-box">
+          <svg class="arm-icon" viewBox="0 0 68 68" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <g transform="rotate(-35,34,34)">
+              <!-- capsule body -->
+              <rect x="21" y="8" width="26" height="52" rx="13" stroke="#555" stroke-width="1.5" fill="none"/>
+              <!-- dividing line -->
+              <line x1="21" y1="34" x2="47" y2="34" stroke="#555" stroke-width="1.5"/>
+              <!-- top half shaded -->
+              <path d="M21 34 Q21 8 34 8 Q47 8 47 34 Z" fill="#d0d8c8" stroke="none"/>
+            </g>
+          </svg>
+          <div class="arm-info">
+            <span class="arm-n">–</span>
+            <span class="arm-name">Kol 2</span>
+            <span>Uygulama açıklaması</span>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ─── FINDINGS ─── -->
+    <div class="cell cell-white" id="cell-findings">
+      <div class="sec-lbl">Findings</div>
+      <div class="findings-sum ph" id="va-findings-text">
+        Temel bulgular özeti buraya gelecek. (<i>P</i> = –)
+      </div>
+      <div class="chart-wrap">
+        <div class="chart-ph" id="va-chart-ph">[ Grafik / Figure ]</div>
+        <canvas id="va-chart"></canvas>
+      </div>
+      <div class="findings-bullets ph" id="va-findings-bullets">
+        Kol 1: – (– of –)<br>
+        Kol 2: – (– of –)
+      </div>
+    </div>
+
+  </div><!-- /va-main -->
+
+  <!-- BOTTOM ROW -->
+  <div class="va-bottom">
+
+    <!-- ─── SETTINGS ─── -->
+    <div class="cell" id="cell-settings">
+      <div class="sec-lbl">Settings / Locations</div>
+      <div class="settings-inner">
+        <svg class="settings-icon" viewBox="0 0 50 50" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="25" cy="25" r="20" stroke="#1e5c34" stroke-width="2"/>
+          <!-- meridian vertical oval -->
+          <ellipse cx="25" cy="25" rx="9" ry="20" stroke="#1e5c34" stroke-width="1.4"/>
+          <!-- equator -->
+          <line x1="5" y1="25" x2="45" y2="25" stroke="#1e5c34" stroke-width="1.4"/>
+          <!-- tropic lines -->
+          <path d="M8 16 Q25 12 42 16" stroke="#1e5c34" stroke-width="1.2" fill="none"/>
+          <path d="M8 34 Q25 38 42 34" stroke="#1e5c34" stroke-width="1.2" fill="none"/>
+        </svg>
+        <div class="settings-txt ph" id="va-settings">– Merkez<br>– Ülke</div>
+      </div>
+    </div>
+
+    <!-- ─── PRIMARY OUTCOME ─── -->
+    <div class="cell" style="border-right:none" id="cell-outcome">
+      <div class="sec-lbl">Primary Outcome</div>
+      <div class="outcome-txt ph" id="va-primary-outcome">
+        Primer sonlanım noktasının tanımı buraya gelecek
+      </div>
+    </div>
+
+  </div><!-- /va-bottom -->
+
+  <!-- FOOTER / CITATION -->
+  <div class="va-footer">
+    <div class="citation ph" id="va-citation">
+      Yazar A, Yazar B, et al. Makale başlığı. <i>Dergi Adı.</i> Yıl. doi:...
+    </div>
+    <div class="ama-lbl">© AMA</div>
+  </div>
+
+</div><!-- /va -->
+
+<script>
+// ── SVG icon templates ──────────────────────────────────────────────────
+const ICONS = {
+  syringe: `<svg class="arm-icon" viewBox="0 0 68 68" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <line x1="58" y1="10" x2="63" y2="5"  stroke="#555" stroke-width="2"   stroke-linecap="round"/>
+    <line x1="60" y1="8"  x2="55" y2="13" stroke="#555" stroke-width="1.5" stroke-linecap="round"/>
+    <path d="M16 52 L50 18" stroke="#555" stroke-width="1.5"/>
+    <path d="M19 56 L23 52 L55 20 L51 16 Z" stroke="#555" stroke-width="1.5" fill="#e8eddf"/>
+    <line x1="34" y1="33" x2="30" y2="37" stroke="#888" stroke-width="1"/>
+    <line x1="39" y1="28" x2="35" y2="32" stroke="#888" stroke-width="1"/>
+    <line x1="44" y1="23" x2="40" y2="27" stroke="#888" stroke-width="1"/>
+    <rect x="13" y="50" width="8" height="4" rx="1" transform="rotate(-45 17 52)" fill="#555"/>
+    <circle cx="7" cy="61" r="3" fill="#555"/>
+    <line x1="10" y1="58" x2="16" y2="52" stroke="#555" stroke-width="2.5" stroke-linecap="round"/>
+  </svg>`,
+
+  pill: `<svg class="arm-icon" viewBox="0 0 68 68" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <g transform="rotate(-35,34,34)">
+      <rect x="21" y="8" width="26" height="52" rx="13" stroke="#555" stroke-width="1.5" fill="none"/>
+      <line x1="21" y1="34" x2="47" y2="34" stroke="#555" stroke-width="1.5"/>
+      <path d="M21 34 Q21 8 34 8 Q47 8 47 34 Z" fill="#d0d8c8" stroke="none"/>
+    </g>
+  </svg>`,
+
+  tablet: `<svg class="arm-icon" viewBox="0 0 68 68" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <circle cx="34" cy="34" r="20" stroke="#555" stroke-width="1.5" fill="none"/>
+    <line x1="14" y1="34" x2="54" y2="34" stroke="#555" stroke-width="1.5"/>
+    <path d="M14 34 A20 20 0 0 1 54 34 Z" fill="#d0d8c8" stroke="none"/>
+  </svg>`,
+};
+
+const ICON_ORDER = [ICONS.syringe, ICONS.pill, ICONS.tablet, ICONS.syringe];
+
+// ── rem placeholder class ───────────────────────────────────────────────
+function unph(id) {
+  const el = document.getElementById(id);
+  if (el) el.classList.remove('ph');
+  return el;
+}
+
+// ── Main renderer ───────────────────────────────────────────────────────
+function renderVisualAbstract(data) {
+  if (!data) return;
+
+  // Journal header
+  if (data.journal) {
+    const el = unph('va-journal');
+    if (el) el.textContent = data.journal;
+  }
+
+  // Study type + title
+  if (data.study_type) {
+    const el = unph('va-study-type');
+    if (el) el.textContent = data.study_type + ':';
+  }
+  if (data.title_raw) {
+    const el = unph('va-title-text');
+    if (el) el.textContent = ' ' + data.title_raw;
+  }
+
+  // Population
+  const p = data.population || {};
+  if (p.n_male != null && p.n_female != null) {
+    const el = unph('va-pop-count');
+    if (el) el.textContent = p.n_male + ' Men, ' + p.n_female + ' Women';
+  }
+  if (p.description) {
+    const el = unph('va-pop-desc');
+    if (el) el.textContent = p.description;
+  }
+  if (p.mean_age) {
+    const el = unph('va-pop-age');
+    if (el) el.innerHTML = '<b>Mean (SD) age, ' + p.mean_age + '</b>';
+  }
+
+  // Intervention
+  const iv = data.intervention || {};
+  if (iv.arms && iv.arms.length) {
+    const total = iv.arms.reduce((s, a) => s + (a.n || 0), 0);
+    const totalEl = unph('va-int-total');
+    if (totalEl) totalEl.innerHTML = '<strong>' + total + '</strong> Patients randomized and analyzed';
+
+    const armsEl = unph('va-arms');
+    if (armsEl) {
+      armsEl.innerHTML = iv.arms.map((arm, i) => `
+        <div class="arm-box">
+          ${ICON_ORDER[i % ICON_ORDER.length]}
+          <div class="arm-info">
+            <span class="arm-n">${arm.n != null ? arm.n : '–'}</span>
+            <span class="arm-name">${arm.label || ''}</span>
+            <span>${arm.description || ''}</span>
+          </div>
+        </div>
+      `).join('');
+    }
+  }
+
+  // Findings
+  const f = data.findings || {};
+  if (f.summary) {
+    const el = unph('va-findings-text');
+    if (el) {
+      let html = f.summary;
+      // italicize p-value
+      html = html.replace(/\b([Pp]\s*[=<>≤≥]\s*\.?\d+(?:\.\d+)?)\b/g, '<i>$1</i>');
+      if (f.p_value) {
+        const pv = f.p_value.replace(/([=<>≤≥])/, '$1');
+        html += ' (<i>' + f.p_value + '</i>)';
+      }
+      el.innerHTML = html;
+    }
+  }
+  if (f.results && f.results.length) {
+    const el = unph('va-findings-bullets');
+    if (el) {
+      el.innerHTML = f.results.map(r =>
+        `${r.arm ? r.arm + ': ' : ''}${r.metric ? r.metric + ', ' : ''}${r.value || '–'}`
+      ).join('<br>');
+    }
+  }
+
+  // Chart
+  if (f.chart_data) {
+    drawChart(f.chart_data);
+  }
+
+  // Settings
+  const s = data.settings || {};
+  if (s.description) {
+    const el = unph('va-settings');
+    // Try to line-break at "in" (e.g., "126 Centers in 22 countries")
+    if (el) el.innerHTML = s.description.replace(/\s+in\s+/i, '<br>in ');
+  }
+
+  // Primary outcome
+  const po = data.primary_outcome || {};
+  if (po.description) {
+    const el = unph('va-primary-outcome');
+    if (el) el.textContent = po.description;
+  }
+
+  // Citation
+  const c = data.citation || {};
+  const citParts = [c.authors, c.title, c.journal, c.published, c.doi].filter(Boolean);
+  if (citParts.length) {
+    const el = unph('va-citation');
+    if (el) el.innerHTML = citParts.join(' ');
+  }
+}
+
+// ── Simple line chart (Canvas, no dependencies) ─────────────────────────
+// chart_data shape:
+// {
+//   x_label: "Week",
+//   y_label: "Proportion of patients, %",
+//   labels: [0,1,2,4,8,12,16],
+//   datasets: [
+//     { label: "Upadacitinib", n: 342, data: [3,18,70,72,79,77,72] },
+//     { label: "Dupilumab",    n: 331, data: [2,10,46,40,57,60,63] }
+//   ]
+// }
+function drawChart(chartData) {
+  const ph     = document.getElementById('va-chart-ph');
+  const canvas = document.getElementById('va-chart');
+  if (!canvas || !chartData) return;
+
+  ph.style.display = 'none';
+  canvas.style.display = 'block';
+
+  const W   = canvas.parentElement.clientWidth || 330;
+  const H   = 170;
+  canvas.width  = W;
+  canvas.height = H;
+
+  const ctx = canvas.getContext('2d');
+  const pad = { top: 18, right: 90, bottom: 28, left: 38 };
+  const pw  = W - pad.left - pad.right;
+  const ph2 = H - pad.top  - pad.bottom;
+
+  const labels   = chartData.labels   || [];
+  const datasets = chartData.datasets || [];
+  const maxY = 100;
+
+  ctx.clearRect(0, 0, W, H);
+  ctx.font = '8.5px Arial';
+  ctx.fillStyle = '#333';
+
+  // ── grid & Y-axis ──
+  ctx.strokeStyle = '#ddd';
+  ctx.lineWidth = 0.8;
+  [0, 20, 40, 60, 80, 100].forEach(v => {
+    const y = pad.top + ph2 - (v / maxY) * ph2;
+    ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(pad.left + pw, y); ctx.stroke();
+    ctx.fillStyle = '#555';
+    ctx.fillText(v, pad.left - 28, y + 3);
+  });
+
+  // ── axes ──
+  ctx.strokeStyle = '#555'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(pad.left, pad.top); ctx.lineTo(pad.left, pad.top + ph2);
+  ctx.lineTo(pad.left + pw, pad.top + ph2); ctx.stroke();
+
+  // ── X labels ──
+  labels.forEach((lbl, i) => {
+    const x = pad.left + (i / Math.max(labels.length - 1, 1)) * pw;
+    ctx.fillStyle = '#555';
+    ctx.fillText(lbl, x - (String(lbl).length * 2.5), pad.top + ph2 + 13);
+  });
+
+  // ── axis labels ──
+  ctx.save();
+  ctx.translate(9, pad.top + ph2 / 2);
+  ctx.rotate(-Math.PI / 2);
+  ctx.font = '7.5px Arial'; ctx.fillStyle = '#555';
+  ctx.fillText(chartData.y_label || 'Proportion of patients, %', 0, 0);
+  ctx.restore();
+
+  ctx.font = '8px Arial'; ctx.fillStyle = '#555';
+  const xLbl = chartData.x_label || 'Week';
+  ctx.fillText(xLbl, pad.left + pw / 2 - (xLbl.length * 2.5), H - 2);
+
+  // ── lines & points ──
+  const COLORS = ['#1e5c34', '#888888'];
+  datasets.forEach((ds, di) => {
+    const color = COLORS[di % COLORS.length];
+    if (!ds.data || !ds.data.length) return;
+
+    ctx.strokeStyle = color; ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    ds.data.forEach((v, i) => {
+      const x = pad.left + (i / Math.max(labels.length - 1, 1)) * pw;
+      const y = pad.top  + ph2 - (v / maxY) * ph2;
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+
+    // dots
+    ctx.fillStyle = color;
+    ds.data.forEach((v, i) => {
+      const x = pad.left + (i / Math.max(labels.length - 1, 1)) * pw;
+      const y = pad.top  + ph2 - (v / maxY) * ph2;
+      ctx.beginPath(); ctx.arc(x, y, 3, 0, Math.PI * 2); ctx.fill();
+    });
+
+    // end label
+    const lastV = ds.data[ds.data.length - 1];
+    const lastX = pad.left + pw + 4;
+    const lastY = pad.top  + ph2 - (lastV / maxY) * ph2;
+    ctx.fillStyle = '#333'; ctx.font = '7.5px Arial';
+    ctx.fillText((ds.label || '') + (ds.n ? ' (n=' + ds.n + ')' : ''), lastX, lastY + 3);
+  });
+}
+
+// ── Auto-render if JAMA_DATA is injected ────────────────────────────────
+if (typeof JAMA_DATA !== 'undefined' && JAMA_DATA) {
+  renderVisualAbstract(JAMA_DATA);
+}
+</script>
+</body>
+</html>
