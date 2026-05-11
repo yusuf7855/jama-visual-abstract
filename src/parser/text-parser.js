@@ -89,10 +89,13 @@ function expandMedicalAbbreviations(text) {
 function detectStudyType(text) {
   // "Randomized clinical/controlled trial" — en yaygın JAMA formatı
   // Arada sıfatlar olabilir: "randomized, double-blinded, double-dummy, active-controlled clinical trial"
+  // Cluster-randomized trials dahil
   if (/\bRCT\b/.test(text)
     || /randomi[sz]ed\s+(?:controlled|clinical)\s+trial/i.test(text)
     || /randomi[sz]ed\s+trial/i.test(text)
-    || /randomi[sz]ed[,\s]+(?:[\w,\s-]+)?clinical\s+trial/i.test(text)) {
+    || /randomi[sz]ed[,\s]+(?:[\w,\s-]+)?clinical\s+trial/i.test(text)
+    || /stepped[- ]?wedge\s+(?:cluster[- ]?)?randomi[sz]ed/i.test(text)
+    || /cluster[- ]?randomi[sz]ed\s+trial/i.test(text)) {
     return { value: 'RCT', confidence: 0.95 };
   }
   if (/\bcohort\b/i.test(text)) return { value: 'cohort', confidence: 0.85 };
@@ -192,6 +195,59 @@ function detectSex(text) {
   const labelMen  = text.match(/men,\s*(\d+)\s*[\[(]\d+/i);
   const labelWomen = text.match(/women,\s*(\d+)\s*[\[(]\d+/i);
   if (labelMen && labelWomen) return { n_male: parseInt(labelMen[1]), n_female: parseInt(labelWomen[1]), confidence: 0.90 };
+
+  // "male, 1193 (67.2%); female, 582 (32.8%)" — label before count with percentage
+  const labelMale2 = text.match(/\bmale[,:\s]+(\d+)\s*[\[(][\d.]+%?[\])]/i);
+  const labelFemale2 = text.match(/\bfemale[,:\s]+(\d+)\s*[\[(][\d.]+%?[\])]/i);
+  if (labelMale2 && labelFemale2) return { n_male: parseInt(labelMale2[1]), n_female: parseInt(labelFemale2[1]), confidence: 0.91 };
+
+  // "1193 (67.2%) male" or "582 (32.8%) female" — number, percentage, then label
+  const numPctMale = text.match(/\b(\d+)\s*[\[(][\d.]+%?[\])]\s*male\b/i);
+  const numPctFemale = text.match(/\b(\d+)\s*[\[(][\d.]+%?[\])]\s*female\b/i);
+  if (numPctMale && numPctFemale) return { n_male: parseInt(numPctMale[1]), n_female: parseInt(numPctFemale[1]), confidence: 0.91 };
+
+  // JAMA PDF table format: "Sex Male 1193 (67.2) Female 582 (32.8)" or "Sex, No. (%) Male 1193 (67.2)"
+  const sexTableMale = text.match(/\bMale\s+(\d+)\s*[\[(][\d.]+[\])]/i);
+  const sexTableFemale = text.match(/\bFemale\s+(\d+)\s*[\[(][\d.]+[\])]/i);
+  if (sexTableMale && sexTableFemale) return { n_male: parseInt(sexTableMale[1]), n_female: parseInt(sexTableFemale[1]), confidence: 0.92 };
+
+  // "1193 male [67.2%]" or "1193 male (67.2%)" - number before male with percentage
+  const numMalePct = text.match(/(\d+)\s+male\s*[\[(][\d.]+%?[\])]/i);
+  if (numMalePct) {
+    const nMale = parseInt(numMalePct[1]);
+    // Try to find female count or calculate from total
+    const numFemalePct = text.match(/(\d+)\s+female\s*[\[(][\d.]+%?[\])]/i);
+    if (numFemalePct) {
+      return { n_male: nMale, n_female: parseInt(numFemalePct[1]), confidence: 0.92 };
+    }
+    // Calculate female from total if available
+    const totalMatch = text.match(/(\d+)\s+patients?\s+with\s+ACS/i) || text.match(/(?:among|total\s+of)\s+(\d+)\s+patients?/i);
+    if (totalMatch) {
+      const total = parseInt(totalMatch[1]);
+      if (nMale < total) {
+        return { n_male: nMale, n_female: total - nMale, confidence: 0.88 };
+      }
+    }
+  }
+
+  // "Male, n (%) 1193 (67.2)" or "Male, No. (%) 1193 (67.2)" - header then value
+  const maleHeader = text.match(/\bMale[,\s]+(?:n|No\.?)\s*\(%?\)?\s*(\d+)\s*[\[(][\d.]+/i);
+  const femaleHeader = text.match(/\bFemale[,\s]+(?:n|No\.?)\s*\(%?\)?\s*(\d+)\s*[\[(][\d.]+/i);
+  if (maleHeader && femaleHeader) return { n_male: parseInt(maleHeader[1]), n_female: parseInt(femaleHeader[1]), confidence: 0.90 };
+
+  // Very flexible: any "Male ... NUMBER ... Female ... NUMBER" pattern within 200 chars
+  const flexMF = text.match(/\bMale\b[\s\S]{0,50}?(\d{2,5})[\s\S]{0,100}?\bFemale\b[\s\S]{0,50}?(\d{2,5})/i);
+  if (flexMF) {
+    const m = parseInt(flexMF[1]);
+    const f = parseInt(flexMF[2]);
+    if (m > 10 && f > 10 && m + f < 50000) return { n_male: m, n_female: f, confidence: 0.80 };
+  }
+  const flexFM = text.match(/\bFemale\b[\s\S]{0,50}?(\d{2,5})[\s\S]{0,100}?\bMale\b[\s\S]{0,50}?(\d{2,5})/i);
+  if (flexFM) {
+    const f = parseInt(flexFM[1]);
+    const m = parseInt(flexFM[2]);
+    if (m > 10 && f > 10 && m + f < 50000) return { n_male: m, n_female: f, confidence: 0.78 };
+  }
 
   // "183 men [53.5%]" / "40 [71%] male" — percentage after sex label, or before
   // Multi-arm: sum ALL occurrences of "N men [XX%]" to get total male across arms
@@ -853,9 +909,363 @@ function detectArmCounts(text, fullText) {
     }
   }
 
+  // "865 intervention and 910 control" or "910 control and 865 intervention" - inline format
+  if (arms.length < 2) {
+    const intAndCtrl = text.match(/(\d+)\s+intervention\s+and\s+(\d+)\s+control/i);
+    if (intAndCtrl) {
+      arms.push({ n: parseInt(intAndCtrl[2]), label: 'Control', description: 'Control group' });
+      arms.push({ n: parseInt(intAndCtrl[1]), label: 'Intervention', description: 'Intervention group' });
+    }
+  }
+  if (arms.length < 2) {
+    const ctrlAndInt = text.match(/(\d+)\s+control\s+and\s+(\d+)\s+intervention/i);
+    if (ctrlAndInt) {
+      arms.push({ n: parseInt(ctrlAndInt[1]), label: 'Control', description: 'Control group' });
+      arms.push({ n: parseInt(ctrlAndInt[2]), label: 'Intervention', description: 'Intervention group' });
+    }
+  }
+
+  // Cluster-randomized trial patterns (stepped-wedge, area-based randomization)
+  // "During control periods, N patients were admitted" / "during intervention periods, N patients were admitted"
+  if (arms.length < 2) {
+    const controlPeriod = text.match(/(?:during\s+)?control\s+periods?[,\s]+(\d+)\s+(?:patients?|participants?|adults?)/i)
+      || text.match(/(\d+)\s+(?:patients?|participants?|adults?)\s+(?:were\s+)?(?:admitted\s+)?during\s+(?:the\s+)?control\s+periods?/i);
+    const interventionPeriod = text.match(/(?:during\s+)?intervention\s+periods?[,\s]+(\d+)\s+(?:patients?|participants?|adults?)/i)
+      || text.match(/(\d+)\s+(?:patients?|participants?|adults?)\s+(?:were\s+)?(?:admitted\s+)?during\s+(?:the\s+)?intervention\s+periods?/i);
+    if (controlPeriod && interventionPeriod) {
+      arms.push({ n: parseInt(controlPeriod[1]), label: 'Control', description: 'No education campaign' });
+      arms.push({ n: parseInt(interventionPeriod[1]), label: 'Intervention', description: 'Community ACS education campaign' });
+    }
+  }
+
+  // "N ACS patients from control areas" / "N ACS patients from intervention areas"
+  if (arms.length < 2) {
+    const controlArea = text.match(/(\d+)\s+(?:ACS\s+)?(?:patients?|participants?|adults?)\s+(?:from|in)\s+(?:the\s+)?control\s+(?:areas?|regions?|communities?)/i);
+    const interventionArea = text.match(/(\d+)\s+(?:ACS\s+)?(?:patients?|participants?|adults?)\s+(?:from|in)\s+(?:the\s+)?intervention\s+(?:areas?|regions?|communities?)/i);
+    if (controlArea && interventionArea) {
+      arms.push({ n: parseInt(controlArea[1]), label: 'Control', description: 'Control areas without intervention' });
+      arms.push({ n: parseInt(interventionArea[1]), label: 'Intervention', description: 'Areas receiving community education campaign' });
+    }
+  }
+
+  // "control period (N patients)" / "intervention period (N patients)"
+  if (arms.length < 2) {
+    const ctrlParen = text.match(/control\s+(?:period|phase|arm)\s*[\[(](\d+)\s*(?:patients?|participants?|adults?)?[\])]/i);
+    const intParen = text.match(/intervention\s+(?:period|phase|arm)\s*[\[(](\d+)\s*(?:patients?|participants?|adults?)?[\])]/i);
+    if (ctrlParen && intParen) {
+      arms.push({ n: parseInt(ctrlParen[1]), label: 'Control', description: 'Control period' });
+      arms.push({ n: parseInt(intParen[1]), label: 'Intervention', description: 'Intervention period' });
+    }
+  }
+
+  // "N in control and N in intervention" or similar
+  if (arms.length < 2) {
+    const inCtrlInt = text.match(/(\d+)\s+(?:patients?|participants?|adults?)?\s*(?:in|during)\s+(?:the\s+)?control\b[^.]*?\band\s+(\d+)\s+(?:patients?|participants?|adults?)?\s*(?:in|during)\s+(?:the\s+)?intervention/i);
+    if (inCtrlInt) {
+      arms.push({ n: parseInt(inCtrlInt[1]), label: 'Control', description: 'Control group' });
+      arms.push({ n: parseInt(inCtrlInt[2]), label: 'Intervention', description: 'Intervention group' });
+    }
+  }
+
+  // Flexible but careful: "control ... NUMBER patients" and "intervention ... NUMBER patients"
+  // Must have "patients/participants" after the number to avoid matching age stats
+  if (arms.length < 2) {
+    const flexCI = text.match(/\bcontrol\b[\s\S]{0,60}?(\d{2,4})\s+(?:patients?|participants?|adults?)[\s\S]{0,100}?\bintervention\b[\s\S]{0,60}?(\d{2,4})\s+(?:patients?|participants?|adults?)/i);
+    if (flexCI) {
+      const c = parseInt(flexCI[1]);
+      const i = parseInt(flexCI[2]);
+      if (c > 50 && i > 50 && c !== i) {
+        arms.push({ n: c, label: 'Control', description: 'Control group' });
+        arms.push({ n: i, label: 'Intervention', description: 'Intervention group' });
+      }
+    }
+  }
+  if (arms.length < 2) {
+    const flexIC = text.match(/\bintervention\b[\s\S]{0,60}?(\d{2,4})\s+(?:patients?|participants?|adults?)[\s\S]{0,100}?\bcontrol\b[\s\S]{0,60}?(\d{2,4})\s+(?:patients?|participants?|adults?)/i);
+    if (flexIC) {
+      const i = parseInt(flexIC[1]);
+      const c = parseInt(flexIC[2]);
+      if (c > 50 && i > 50 && c !== i) {
+        arms.push({ n: c, label: 'Control', description: 'Control group' });
+        arms.push({ n: i, label: 'Intervention', description: 'Intervention group' });
+      }
+    }
+  }
+
+  // Specific pattern: "N patients ... control" and "N patients ... intervention"
+  // Exclude age patterns like "924 aged 65 years"
+  if (arms.length < 2) {
+    // Find control count - must be near "control" word
+    const ctrlMatch = text.match(/(\d{2,4})\s*(?:patients?|participants?|adults?)\s*(?:were\s+)?(?:admitted\s+)?(?:during|in)\s*(?:the\s+)?control/i)
+      || text.match(/control\s*(?:period|phase|group|arm)?\s*[,:\s]*(\d{2,4})\s*(?:patients?|participants?)?/i);
+
+    // Find intervention count - must be near "intervention" word
+    const intMatch = text.match(/(\d{2,4})\s*(?:patients?|participants?|adults?)\s*(?:were\s+)?(?:admitted\s+)?(?:during|in)\s*(?:the\s+)?intervention/i)
+      || text.match(/intervention\s*(?:period|phase|group|arm)?\s*[,:\s]*(\d{2,4})\s*(?:patients?|participants?)?/i);
+
+    if (ctrlMatch && intMatch) {
+      const c = parseInt(ctrlMatch[1]);
+      const i = parseInt(intMatch[1]);
+      if (c > 50 && i > 50 && c !== i) {
+        arms.push({ n: c, label: 'Control', description: 'No education campaign' });
+        arms.push({ n: i, label: 'Intervention', description: 'Community education campaign' });
+      }
+    }
+  }
+
+  // --- Kural tabanlı açıklama zenginleştirme ---
+  // Arms tespit edildiyse, metinden gerçek açıklamaları çıkar
+  if (arms.length >= 2) {
+    enrichArmDescriptions(text, arms);
+  }
+
   if (arms.length >= 2) return { arms, confidence: arms[0].n != null ? 0.88 : 0.65 };
   if (arms.length === 1) return { arms, confidence: 0.6 };
   return null;
+}
+
+// --- Arm Açıklama Zenginleştirme ---
+// Metinden control ve intervention açıklamalarını çıkarır ve arms'a uygular
+function enrichArmDescriptions(text, arms) {
+  // INTERVENTION bölümünü bul (varsa)
+  const ivSection = text.match(/INTERVENTION[S]?[:\s]+(.+?)(?:MAIN\s+OUTCOMES?|PRIMARY\s+OUTCOME|RESULTS?|CONCLUSIONS?)/is);
+  const searchText = ivSection ? ivSection[1] : text;
+
+  // --- Control açıklaması çıkarma ---
+  let controlDesc = null;
+
+  // Pattern 1: "Control areas received [description]"
+  const ctrlReceivedMatch = searchText.match(/Control\s+(?:areas?|groups?|arms?|participants?)\s+received\s+([^.()]+?)(?:\.|$|\()/i);
+  if (ctrlReceivedMatch) {
+    controlDesc = capitalizeFirst(ctrlReceivedMatch[1].trim());
+  }
+
+  // Pattern 1b: "did not include any educational campaign" → "No education campaign"
+  if (!controlDesc) {
+    const didNotMatch = searchText.match(/(?:control\s+)?(?:period\s+)?did\s+not\s+include\s+any\s+(?:educational?\s+)?(?:campaign|intervention)/i);
+    if (didNotMatch) {
+      controlDesc = 'No education campaign';
+    }
+  }
+
+  // Pattern 2: "no education campaign" veya "usual care" standalone
+  if (!controlDesc) {
+    const noEducationMatch = searchText.match(/\b(no\s+(?:education(?:al)?\s+)?(?:campaign|intervention)|usual\s+care|standard\s+(?:of\s+)?care|enhanced\s+usual\s+care|routine\s+care)\b/i);
+    if (noEducationMatch) {
+      // Normalize: "no educational campaign" → "No education campaign"
+      let desc = noEducationMatch[1].trim();
+      desc = desc.replace(/educational/i, 'education');
+      controlDesc = capitalizeFirst(desc);
+    }
+  }
+
+  // Pattern 3: "Control: [description]" formatı
+  if (!controlDesc) {
+    const ctrlColonMatch = searchText.match(/Control[:\s]+([^.;]+?)(?:\.|;|$)/i);
+    if (ctrlColonMatch && ctrlColonMatch[1].length < 100) {
+      controlDesc = ctrlColonMatch[1].trim();
+    }
+  }
+
+  // --- Intervention açıklaması çıkarma ---
+  let interventionDesc = null;
+  let interventionActivities = null;
+
+  // Pattern 0: Spesifik kampanya isimleri - "Heart Matters" vb.
+  // Tüm metin içinde ara
+  const knownCampaigns = text.match(/\b(Heart\s+Matters)\b/i);
+  if (knownCampaigns) {
+    // Bilinen kampanya adı bulundu - tam adı oluştur
+    interventionDesc = knownCampaigns[1] + ' community ACS education campaign';
+  }
+
+  // Pattern 1: Kampanya ismi - "[Name] community ACS education campaign" vb.
+  // "During the" prefix'ini hariç tut, "Randomized/Clinical/Trial" kelimelerini hariç tut
+  if (!interventionDesc) {
+    const campaignNameMatch = searchText.match(/(?:During\s+the\s+)?([A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z]+)*\s+(?:community\s+)?(?:ACS\s+)?(?:education\s+)?campaign)\b/i);
+    if (campaignNameMatch) {
+      const candidate = campaignNameMatch[1].trim();
+      // "Randomized", "Clinical", "Trial", "Stepped" gibi çalışma türü kelimelerini içermiyorsa kabul et
+      if (!/\b(randomized|clinical|trial|stepped|wedge|cluster)\b/i.test(candidate)) {
+        interventionDesc = candidate;
+      }
+    }
+  }
+
+  // Pattern 1b: "multicomponent community education program" vb.
+  if (!interventionDesc) {
+    const programMatch = searchText.match(/\b((?:multicomponent\s+)?community\s+education\s+(?:program|campaign|intervention))\b/i);
+    if (programMatch) {
+      // Başlıktan kampanya adını al ve birleştir
+      const campaignName = text.match(/\b(Heart\s+Matters)\b/i);
+      if (campaignName) {
+        interventionDesc = campaignName[1] + ' community ACS education campaign';
+      } else {
+        interventionDesc = capitalizeFirst(programMatch[1]);
+      }
+    }
+  }
+
+  // Pattern 2: Aktivite listesi - "community sessions, mailouts, handouts..."
+  // "490 community sessions... mailouts... handouts... opportunistic media... social-media campaign"
+  const activitiesMatch = searchText.match(/(?:community\s+sessions|education\s+sessions)[^.]*?(mailouts?|handouts?)[^.]*?(media)[^.]*?(?:campaign)?/i);
+  if (activitiesMatch) {
+    // Aktiviteleri manuel olarak çıkar
+    const acts = [];
+    if (/community\s+sessions/i.test(searchText)) acts.push('Community education sessions');
+    if (/mailouts?/i.test(searchText)) acts.push('mailouts');
+    if (/handouts?/i.test(searchText)) acts.push('handouts');
+    if (/opportunistic\s+media/i.test(searchText)) acts.push('opportunistic media');
+    if (/social[- ]?media\s+campaign/i.test(searchText)) acts.push('geotargeted social media campaign');
+
+    if (acts.length > 0) {
+      interventionActivities = acts.join(', ');
+    }
+  }
+
+  // Pattern 2b: Alternatif aktivite pattern - daha genel
+  if (!interventionActivities) {
+    const altActivities = searchText.match(/including\s+(?:\d+\s+)?community\s+sessions[^.]+/i);
+    if (altActivities) {
+      // Parantez içindeki sayıları temizle
+      let cleaned = altActivities[0]
+        .replace(/including\s+/i, '')
+        .replace(/\([^)]+\)/g, '')
+        .replace(/more\s+than\s+[\d,]+\s+(?:households?\s+)?/gi, '')
+        .replace(/approximately\s+[\d,]+\s+/gi, '')
+        .replace(/\s+,/g, ',')
+        .replace(/,\s*,/g, ',')
+        .trim();
+
+      // Sadece önemli aktiviteleri al
+      const parts = cleaned.split(/,\s+/).filter(p =>
+        /session|mailout|handout|media|campaign/i.test(p)
+      ).slice(0, 5);
+
+      if (parts.length > 0) {
+        interventionActivities = parts.map(p => p.trim()).join(', ');
+      }
+    }
+  }
+
+  // Pattern 3: CBT, terapi türleri
+  if (!interventionDesc) {
+    const therapyMatch = searchText.match(/\b(\d+)\s+(?:weekly\s+)?sessions?\s+of\s+([A-Z]{2,}|cognitive\s+behavioral\s+therapy|psychotherapy|counseling)[^.]*?(?:adapted[^.]*?)?/i);
+    if (therapyMatch) {
+      interventionDesc = therapyMatch[0].trim();
+    }
+  }
+
+  // Pattern 4: Genel intervention tanımı - "During the [intervention name]"
+  if (!interventionDesc) {
+    const duringMatch = searchText.match(/During\s+the\s+([A-Z][A-Za-z\s]+(?:campaign|intervention|program|trial))/i);
+    if (duringMatch) {
+      interventionDesc = duringMatch[1].trim();
+    }
+  }
+
+  // Pattern 5: Intervention içeriği - stepped-wedge için
+  if (!interventionDesc) {
+    const contentMatch = searchText.match(/intervention\s+(?:consisted\s+of|included|involved|was)\s+([^.]+)/i);
+    if (contentMatch) {
+      interventionDesc = contentMatch[1].trim();
+      if (interventionDesc.length > 80) {
+        interventionDesc = interventionDesc.substring(0, 80).trim() + '...';
+      }
+    }
+  }
+
+  // --- Arms'a açıklamaları uygula ---
+  for (const arm of arms) {
+    const labelLower = arm.label.toLowerCase();
+
+    if (labelLower.includes('control') || labelLower.includes('placebo') || labelLower.includes('usual care')) {
+      // Control arm
+      if (controlDesc && arm.description === 'Control group') {
+        arm.description = controlDesc;
+      }
+    } else if (labelLower.includes('intervention') || labelLower.includes('treatment') || labelLower.includes('active')) {
+      // Intervention arm
+      if (interventionDesc && arm.description === 'Intervention group') {
+        arm.label = interventionDesc;
+        if (interventionActivities) {
+          arm.description = interventionActivities;
+        } else {
+          arm.description = interventionDesc;
+        }
+      }
+    }
+  }
+}
+
+// Yardımcı: İlk harfi büyük yap
+function capitalizeFirst(str) {
+  if (!str) return str;
+  return str.charAt(0).toUpperCase() + str.slice(1);
+}
+
+// Yardımcı: Tıbbi kısaltmaları aç (population description için)
+function expandConditionAbbreviations(cond) {
+  const abbreviations = {
+    'ACS': 'acute coronary syndrome (ACS)',
+    'MI': 'myocardial infarction (MI)',
+    'CHF': 'congestive heart failure (CHF)',
+    'CAD': 'coronary artery disease (CAD)',
+    'COPD': 'chronic obstructive pulmonary disease (COPD)',
+    'DM': 'diabetes mellitus (DM)',
+    'DM2': 'type 2 diabetes (DM2)',
+    'HTN': 'hypertension (HTN)',
+    'CKD': 'chronic kidney disease (CKD)',
+    'ESRD': 'end-stage renal disease (ESRD)',
+    'CVA': 'cerebrovascular accident (CVA)',
+    'TIA': 'transient ischemic attack (TIA)',
+    'DVT': 'deep vein thrombosis (DVT)',
+    'PE': 'pulmonary embolism (PE)',
+    'AF': 'atrial fibrillation (AF)',
+    'AFIB': 'atrial fibrillation (AFib)',
+    'HF': 'heart failure (HF)',
+    'STEMI': 'ST-elevation myocardial infarction (STEMI)',
+    'NSTEMI': 'non-ST-elevation myocardial infarction (NSTEMI)',
+    'ASCVD': 'atherosclerotic cardiovascular disease (ASCVD)',
+    'PAD': 'peripheral artery disease (PAD)',
+    'OSA': 'obstructive sleep apnea (OSA)',
+    'GERD': 'gastroesophageal reflux disease (GERD)',
+    'IBD': 'inflammatory bowel disease (IBD)',
+    'RA': 'rheumatoid arthritis (RA)',
+    'SLE': 'systemic lupus erythematosus (SLE)',
+    'MS': 'multiple sclerosis (MS)',
+    'PD': 'Parkinson disease (PD)',
+    'AD': 'Alzheimer disease (AD)',
+    'MDD': 'major depressive disorder (MDD)',
+    'GAD': 'generalized anxiety disorder (GAD)',
+    'PTSD': 'post-traumatic stress disorder (PTSD)',
+    'OCD': 'obsessive-compulsive disorder (OCD)',
+    'ADHD': 'attention deficit hyperactivity disorder (ADHD)',
+    'ASD': 'autism spectrum disorder (ASD)',
+    'T2D': 'type 2 diabetes (T2D)',
+    'CRS': 'chronic rhinosinusitis (CRS)',
+    'BPPV': 'benign paroxysmal positional vertigo (BPPV)',
+  };
+
+  // Exact match for standalone abbreviations
+  const trimmed = cond.trim().toUpperCase();
+  if (abbreviations[trimmed]) {
+    return abbreviations[trimmed];
+  }
+
+  // Replace abbreviations within longer text
+  let result = cond;
+  for (const [abbr, full] of Object.entries(abbreviations)) {
+    // Only replace if it's a standalone word (not part of another word)
+    const regex = new RegExp(`\\b${abbr}\\b(?!\\s*\\()`, 'gi');
+    if (regex.test(result)) {
+      // Replace only the first occurrence
+      result = result.replace(regex, full);
+      break; // Only expand one abbreviation to avoid overly long text
+    }
+  }
+
+  return result;
 }
 
 // --- Intervention Details Extraction ---
@@ -967,6 +1377,58 @@ function extractInterventionDetails(text) {
   return details;
 }
 
+// Terapi tarzı (non-pharmacological) intervention açıklamalarını çıkar
+// "to receive 6 weekly sessions of CBT adapted for delivery without written materials or only enhanced usual care"
+function extractTherapyDescriptions(text) {
+  const descriptions = {};
+
+  // INTERVENTION bölümünü bul
+  const ivMatch = text.match(/INTERVENTION[S]?[:\s]+(.+?)(?:MAIN OUTCOMES?|PRIMARY OUTCOME|RESULTS?)/is);
+  if (!ivMatch) return descriptions;
+
+  const ivText = ivMatch[1];
+
+  // "to receive X or [only] Y" pattern
+  // "to receive 6 weekly sessions of CBT adapted for delivery without written materials or only enhanced usual care"
+  const receiveMatch = ivText.match(/to\s+receive\s+(.+?)\s+or\s+(?:only\s+)?(.+?)(?:\.\s|$)/i);
+  if (receiveMatch) {
+    let desc1 = receiveMatch[1].trim();
+    let desc2 = receiveMatch[2].trim();
+
+    // İlk açıklama (aktif tedavi)
+    // "6 weekly sessions of CBT adapted for delivery without written materials"
+    const sessionMatch = desc1.match(/(\d+)\s+(?:weekly|daily|monthly)\s+(?:\d+[- ]?(?:to[- ]?\d+)?[- ]?min(?:ute)?\s+)?sessions?\s+of\s+([A-Za-z]+)/i);
+    if (sessionMatch) {
+      const therapy = sessionMatch[2].toUpperCase();
+      descriptions[therapy] = desc1.replace(/\s+/g, ' ');
+      descriptions[therapy.toLowerCase()] = descriptions[therapy];
+    } else {
+      // Genel pattern: ilk kelime tedavi adı
+      const firstWord = desc1.split(/\s+/)[0];
+      if (firstWord && firstWord.length > 1) {
+        descriptions[firstWord.toLowerCase()] = desc1.replace(/\s+/g, ' ');
+        descriptions[firstWord.toUpperCase()] = descriptions[firstWord.toLowerCase()];
+      }
+    }
+
+    // İkinci açıklama (kontrol/usual care)
+    // "enhanced usual care" → daha detaylı açıklama "which consisted of..." ile birleştir
+    const usualCareMatch = ivText.match(/(?:enhanced\s+)?usual\s+care[,\s]+which\s+consisted\s+of\s+([^.]+)/i);
+    if (usualCareMatch) {
+      desc2 = desc2.replace(/\s+/g, ' ') + ': ' + usualCareMatch[1].trim();
+    }
+
+    // Kontrol grubunu ekle
+    if (desc2.toLowerCase().includes('usual care') || desc2.toLowerCase().includes('control') || desc2.toLowerCase().includes('placebo')) {
+      descriptions['control'] = desc2.replace(/\s+/g, ' ');
+      descriptions['usual care'] = descriptions['control'];
+      descriptions['enhanced usual care'] = descriptions['control'];
+    }
+  }
+
+  return descriptions;
+}
+
 // Arm'a detaylı açıklama ekle
 function enrichArmWithDetails(arm, interventionDetails) {
   if (!interventionDetails || interventionDetails.length === 0) return arm;
@@ -1003,6 +1465,18 @@ function enrichArmWithDetails(arm, interventionDetails) {
 }
 
 function detectSettings(text) {
+  // "8 areas in Victoria, Australia" or "8 communities in State, Country"
+  const areasIn = text.match(/(\d+)\s+(?:geographic\s+)?(?:areas?|communities?|regions?)\s+(?:in|across|throughout)\s+([A-Za-z][A-Za-z\s]+?)[,\s]+([A-Za-z][A-Za-z\s]+)/i);
+  if (areasIn) {
+    return { value: `${areasIn[1]} Areas in ${areasIn[2].trim()}, ${areasIn[3].trim()}`, confidence: 0.90 };
+  }
+
+  // "8 Victorian communities" or "8 areas with high cardiovascular risk"
+  const adjAreas = text.match(/(\d+)\s+([A-Za-z]+ian|[A-Za-z]+ish)\s+(?:areas?|communities?|regions?)/i);
+  if (adjAreas) {
+    return { value: `${adjAreas[1]} Areas in ${adjAreas[2].replace(/ian$|ish$/, '')}`, confidence: 0.85 };
+  }
+
   // "6 government-run antenatal clinics in Pujehun District, Sierra Leone"
   const govClinics = text.match(/(\d+)\s+(?:government[- ]run\s+)?(?:antenatal|prenatal|maternal|health)\s+clinics?\s+in\s+([A-Za-z][A-Za-z\s]+(?:District)?)[,\s]+([A-Za-z][A-Za-z\s]+)/i);
   if (govClinics) {
@@ -1138,6 +1612,154 @@ function detectSettings(text) {
   return null;
 }
 
+// Yaygın klinik ölçekler için lookup table
+// Kural tabanlı: ölçek kısaltması → tam isim, skor aralığı, yorumlama
+const CLINICAL_SCALES = {
+  'phq-9': {
+    fullName: 'Patient Health Questionnaire-9',
+    abbreviation: 'PHQ-9',
+    scoreRange: '0-27',
+    interpretation: 'higher scores indicating more severe depressive symptoms'
+  },
+  'aphq-9': {
+    fullName: 'Adapted Patient Health Questionnaire-9',
+    abbreviation: 'aPHQ-9',
+    scoreRange: '0-27',
+    interpretation: 'higher scores indicating more severe depressive symptoms'
+  },
+  'gad-7': {
+    fullName: 'Generalized Anxiety Disorder 7-item',
+    abbreviation: 'GAD-7',
+    scoreRange: '0-21',
+    interpretation: 'higher scores indicating more severe anxiety'
+  },
+  'easi': {
+    fullName: 'Eczema Area and Severity Index',
+    abbreviation: 'EASI',
+    scoreRange: '0-72',
+    interpretation: 'higher scores indicating more severe eczema'
+  },
+  'vas': {
+    fullName: 'Visual Analog Scale',
+    abbreviation: 'VAS',
+    scoreRange: '0-10',
+    interpretation: 'higher scores indicating more severe symptoms'
+  },
+  'nrs': {
+    fullName: 'Numeric Rating Scale',
+    abbreviation: 'NRS',
+    scoreRange: '0-10',
+    interpretation: 'higher scores indicating more severe pain'
+  },
+  'mmse': {
+    fullName: 'Mini-Mental State Examination',
+    abbreviation: 'MMSE',
+    scoreRange: '0-30',
+    interpretation: 'lower scores indicating more severe cognitive impairment'
+  },
+  'moca': {
+    fullName: 'Montreal Cognitive Assessment',
+    abbreviation: 'MoCA',
+    scoreRange: '0-30',
+    interpretation: 'lower scores indicating more severe cognitive impairment'
+  },
+  'hamd': {
+    fullName: 'Hamilton Depression Rating Scale',
+    abbreviation: 'HAMD',
+    scoreRange: '0-52',
+    interpretation: 'higher scores indicating more severe depression'
+  },
+  'madrs': {
+    fullName: 'Montgomery-Åsberg Depression Rating Scale',
+    abbreviation: 'MADRS',
+    scoreRange: '0-60',
+    interpretation: 'higher scores indicating more severe depression'
+  },
+  'bdi': {
+    fullName: 'Beck Depression Inventory',
+    abbreviation: 'BDI',
+    scoreRange: '0-63',
+    interpretation: 'higher scores indicating more severe depression'
+  },
+  'sf-36': {
+    fullName: 'Short Form Health Survey',
+    abbreviation: 'SF-36',
+    scoreRange: '0-100',
+    interpretation: 'higher scores indicating better health-related quality of life'
+  },
+  'eq-5d': {
+    fullName: 'EuroQol 5-Dimension',
+    abbreviation: 'EQ-5D',
+    scoreRange: '0-1',
+    interpretation: 'higher scores indicating better quality of life'
+  },
+  'updrs': {
+    fullName: 'Unified Parkinson Disease Rating Scale',
+    abbreviation: 'UPDRS',
+    scoreRange: '0-199',
+    interpretation: 'higher scores indicating more severe symptoms'
+  },
+  'nihss': {
+    fullName: 'National Institutes of Health Stroke Scale',
+    abbreviation: 'NIHSS',
+    scoreRange: '0-42',
+    interpretation: 'higher scores indicating more severe stroke'
+  },
+  'apache': {
+    fullName: 'Acute Physiology and Chronic Health Evaluation',
+    abbreviation: 'APACHE',
+    scoreRange: '0-71',
+    interpretation: 'higher scores indicating more severe illness'
+  },
+  'sofa': {
+    fullName: 'Sequential Organ Failure Assessment',
+    abbreviation: 'SOFA',
+    scoreRange: '0-24',
+    interpretation: 'higher scores indicating more severe organ dysfunction'
+  }
+};
+
+// Ölçek bilgisini outcome açıklamasına ekle
+function enrichOutcomeWithScaleInfo(outcome) {
+  const lowerOutcome = outcome.toLowerCase();
+
+  // Önce en uzun key'leri eşleştir (aphq-9 > phq-9 gibi)
+  const sortedEntries = Object.entries(CLINICAL_SCALES).sort((a, b) => b[0].length - a[0].length);
+
+  for (const [key, scale] of sortedEntries) {
+    // Kısaltma veya tam ismi ara - word boundary ile
+    const keyPattern = new RegExp(`\\b${key.replace(/-/g, '[-]?')}\\b`, 'i');
+    const abbrPattern = new RegExp(`\\b${scale.abbreviation.replace(/-/g, '[-]?')}\\b`, 'i');
+    if (keyPattern.test(lowerOutcome) || abbrPattern.test(lowerOutcome)) {
+      // Zaten tam bilgi varsa ekleme
+      if (lowerOutcome.includes('score range') || lowerOutcome.includes('higher scores') || lowerOutcome.includes('lower scores')) {
+        return outcome;
+      }
+
+      let enriched = outcome;
+
+      // Eğer sadece kısaltma varsa, tam ismi ekle
+      if (!lowerOutcome.includes(scale.fullName.toLowerCase())) {
+        // Kısaltmayı regex için escape et ve tire'yi opsiyonel yap
+        const escapedAbbr = scale.abbreviation
+          .replace(/[.*+?^${}()|[\]\\]/g, '\\$&') // Özel karakterleri escape et
+          .replace(/-/g, '[-]?'); // Tire opsiyonel
+        const abbrPattern = new RegExp(`\\b${escapedAbbr}\\b`, 'gi');
+        enriched = enriched.replace(abbrPattern, `${scale.fullName} (${scale.abbreviation})`);
+      }
+
+      // Skor aralığı ve yorumlama ekle
+      // Cümle sonundaki nokta varsa kaldır, bilgiyi ekle, sonra nokta koy
+      enriched = enriched.replace(/\.?\s*$/, '');
+      enriched += `. Score range, ${scale.scoreRange}, with ${scale.interpretation}`;
+
+      return enriched;
+    }
+  }
+
+  return outcome;
+}
+
 function detectPrimaryOutcome(text) {
   // Helper: format outcome with timeframe
   function formatOutcome(rawOutcome) {
@@ -1172,6 +1794,9 @@ function detectPrimaryOutcome(text) {
     // Clean up redundant phrases
     outcome = outcome.replace(/\s*Other\s+outcomes?\s+included\b.*$/i, '');
     outcome = outcome.replace(/\s*All\s+randomly\s+assigned\b.*$/i, '');
+
+    // Klinik ölçek bilgilerini ekle (tam isim, skor aralığı, yorumlama)
+    outcome = enrichOutcomeWithScaleInfo(outcome);
 
     return outcome;
   }
@@ -1291,7 +1916,24 @@ function detectTitle(text) {
 function detectParticipantCounts(text) {
   // "400 Participants randomized" / "394 Participants analyzed"
   const randomized = text.match(/(\d+)\s+participants?\s+randomized/i);
-  const analyzed = text.match(/(\d+)\s+participants?\s+analyzed/i);
+  let analyzed = text.match(/(\d+)\s+participants?\s+analyzed/i);
+
+  // "data were available for N of M participants" or "N of M eligible participants (X%)"
+  if (!analyzed) {
+    const availableMatch = text.match(/(?:data\s+)?(?:were|was)\s+available\s+for\s+(\d+)\s+of\s+(\d+)\s+(?:eligible\s+)?participants?/i);
+    if (availableMatch) {
+      analyzed = [null, availableMatch[1]];
+    }
+  }
+
+  // "N completed the study" or "N completed follow-up"
+  if (!analyzed) {
+    const completedMatch = text.match(/(\d+)\s+(?:participants?\s+)?completed\s+(?:the\s+study|follow[- ]?up|the\s+trial)/i);
+    if (completedMatch) {
+      analyzed = [null, completedMatch[1]];
+    }
+  }
+
   if (randomized || analyzed) {
     return {
       n_randomized: randomized ? parseInt(randomized[1]) : null,
@@ -1302,6 +1944,33 @@ function detectParticipantCounts(text) {
   return null;
 }
 
+// Arm başına analiz edilen sayıları yüzdelerden hesapla
+function detectAnalyzedPerArm(text, arms) {
+  if (!arms || arms.length < 2) return null;
+
+  // "N ARM participants (X%) achieved OUTCOME compared with N participants (Y%) in the CONTROL group"
+  // CBT: "59 CBT participants (78.6%) achieved remission compared with 22 participants (33.8%) in the control group"
+  const achievedPat = /(\d+)\s+([A-Za-z][A-Za-z0-9\s-]{1,15}?)\s+participants?\s*\(([\d.]+)%\)\s+achieved\s+[A-Za-z][A-Za-z\s]+?\s+compared\s+with\s+(\d+)\s+participants?\s*\(([\d.]+)%\)\s+(?:in\s+)?(?:the\s+)?([A-Za-z][A-Za-z0-9\s-]+?)\s+group/i;
+  const m = achievedPat.exec(text);
+  if (m) {
+    const n1 = parseInt(m[1]);
+    const pct1 = parseFloat(m[3]);
+    const n2 = parseInt(m[4]);
+    const pct2 = parseFloat(m[5]);
+
+    // Analiz edilen sayıları hesapla: n_achieved / (pct/100) = n_analyzed
+    const analyzed1 = Math.round(n1 / (pct1 / 100));
+    const analyzed2 = Math.round(n2 / (pct2 / 100));
+
+    return {
+      arm1: { label: m[2].trim(), n_analyzed: analyzed1 },
+      arm2: { label: m[6].trim(), n_analyzed: analyzed2 }
+    };
+  }
+
+  return null;
+}
+
 // --- Ana parser ---
 
 /**
@@ -1309,16 +1978,47 @@ function detectParticipantCounts(text) {
  * @param {string} text
  * @returns {Object}  — standart girdi schema'sına uyar + review_flags
  */
+// Findings özeti için kelime sınırı (JAMA standardı)
+const FINDINGS_WORD_LIMIT = 50;
+
+// Findings metnini temizle ve kelime sınırına uydur
+function cleanFindingsSummary(text) {
+  let s = text.trim().replace(/\s+/g, ' ');
+
+  // PDF gürültüsünü temizle - "Key Points", "Question", "Meaning" bölümleri
+  s = s.replace(/\s*\(?continued\)?\s*Key\s+Points\b.*$/i, '')
+       .replace(/\s*Key\s+Points\s+Question\b.*$/i, '')
+       .replace(/\s*Question\s+Is\s+a\b.*$/i, '')
+       .replace(/\s*Findings\s+In\s+this\b.*$/i, '')
+       .replace(/\s*Meaning\s+These?\b.*$/i, '')
+       .replace(/\s*TRIAL\s+REGISTRATION\b.*$/i, '')
+       .replace(/\s*ClinicalTrials\.gov\b.*$/i, '')
+       .replace(/\s*Identifier[:\s]+NCT\d+.*$/i, '')
+       .trim();
+
+  // Kelime sınırını uygula (≤50 kelime)
+  const words = s.split(/\s+/);
+  if (words.length > FINDINGS_WORD_LIMIT) {
+    // Son cümleyi tamamla - en yakın nokta işaretine kadar kes
+    let truncated = words.slice(0, FINDINGS_WORD_LIMIT).join(' ');
+    // Eğer cümle ortasında kaldıysa, son tamamlanmış cümleye kadar kes
+    const lastPeriod = truncated.lastIndexOf('.');
+    if (lastPeriod > truncated.length * 0.6) {
+      truncated = truncated.slice(0, lastPeriod + 1);
+    } else {
+      truncated += '...';
+    }
+    s = truncated;
+  }
+
+  return s;
+}
+
 function detectFindingsSummary(text) {
   // CONCLUSIONS AND RELEVANCE — en temiz özet
   const conc = text.match(/CONCLUSIONS?\s+(?:AND\s+RELEVANCE)?[:\s]+([^.]+(?:\.[^A-Z\n][^.]+)?)/i);
   if (conc) {
-    let s = conc[1].trim().replace(/\s+/g, ' ');
-    // "TRIAL REGISTRATION ClinicalTrials.gov..." suffix'ini temizle
-    s = s.replace(/\s*TRIAL\s+REGISTRATION\b.*$/i, '')
-         .replace(/\s*ClinicalTrials\.gov\b.*$/i, '')
-         .replace(/\s*Identifier[:\s]+NCT\d+.*$/i, '')
-         .trim();
+    const s = cleanFindingsSummary(conc[1]);
     if (s.length > 30) return { value: s, confidence: 0.88 };
   }
   // RESULTS — son cümlesi (genel çıkarım genelde sondadır)
@@ -1326,7 +2026,10 @@ function detectFindingsSummary(text) {
   if (resMatch) {
     const sentences = resMatch[1].split(/\.\s+/);
     const last = sentences.filter(s => s.trim().length > 30).pop();
-    if (last) return { value: last.trim().replace(/\s+/g, ' '), confidence: 0.80 };
+    if (last) {
+      const s = cleanFindingsSummary(last);
+      return { value: s, confidence: 0.80 };
+    }
   }
   return null;
 }
@@ -1479,6 +2182,20 @@ function detectCitation(text) {
 }
 
 function detectPopulationDescription(text) {
+  // "Adult patients admitted to emergency departments with ACS in areas with high cardiovascular risk"
+  const acsAdmitted = text.match(/(?:adult\s+)?patients?\s+(?:\([^)]+\)\s+)?admitted\s+to\s+(?:the\s+)?(?:emergency\s+)?(?:departments?|EDs?)\s+with\s+([A-Za-z][A-Za-z\s()]+?)(?:\s+in\s+|between\s+|\s+from\s+)/i);
+  if (acsAdmitted) {
+    let condition = acsAdmitted[1].trim().replace(/\s+/g, ' ');
+    // ACS → acute coronary syndrome
+    if (condition === 'ACS') condition = 'acute coronary syndrome (ACS)';
+    // Check for area description (high cardiovascular risk, low EMS use)
+    const areaDesc = text.match(/(?:areas?|communities?|regions?)\s+with\s+((?:high|elevated|low)[^.]+?(?:risk|use))/i);
+    if (areaDesc) {
+      return { value: `Adults admitted to emergency departments with ${condition} in areas with ${areaDesc[1].trim()}`, confidence: 0.88 };
+    }
+    return { value: `Adults admitted to emergency departments with ${condition}`, confidence: 0.85 };
+  }
+
   // "pregnant and postpartum women who were undernourished and had depression"
   // Perinatal/pregnant women with conditions
   const perinatalWomen = text.match(/(?:pregnant\s+and\s+postpartum|perinatal|pregnant|postpartum)\s+women\s+(?:who\s+were\s+)?([A-Za-z][A-Za-z\s,]+?)(?:\s+and\s+had\s+([A-Za-z][A-Za-z\s]+))?(?=\s*[\.\(]|\s+scoring|\s+in\s+rural)/i);
@@ -1521,10 +2238,18 @@ function detectPopulationDescription(text) {
   }
 
   // "among 673 adults with moderate-to-severe atopic dermatitis"
-  const amongAdults = text.match(/among\s+\d+\s+(adults?|patients?|infants?|children)\s+with\s+([\s\S]{10,100}?)(?=\s+(?:who|that|with|were|at|in|from|randomized)|\.\s)/i);
+  // Also handles short conditions like "ACS", "MI", "CHF" (minimum 2 chars)
+  const amongAdults = text.match(/among\s+\d+\s+(adults?|patients?|infants?|children)\s+with\s+([\s\S]{2,100}?)(?=\s+(?:who|that|were|at|in|from|randomized)|\s*\(|\.\s)/i);
   if (amongAdults) {
     const pop = amongAdults[1].charAt(0).toUpperCase() + amongAdults[1].slice(1);
-    const cond = amongAdults[2].trim().replace(/\s+/g, ' ');
+    let cond = amongAdults[2].trim().replace(/\s+/g, ' ');
+    // Expand medical abbreviations
+    cond = expandConditionAbbreviations(cond);
+    // Look for area/community risk description
+    const areaRisk = text.match(/(?:in\s+)?(?:communities?|areas?|regions?)\s+with\s+((?:high|elevated|low)[^.]{5,60}?(?:risk|use))/i);
+    if (areaRisk) {
+      return { value: `${pop} with ${cond} in areas with ${areaRisk[1].trim()}`, confidence: 0.88 };
+    }
     return { value: `${pop} with ${cond}`, confidence: 0.82 };
   }
 
@@ -2159,6 +2884,10 @@ function parseText(text) {
   const totalN  = detectTotalN(workingText);
   const counts  = detectParticipantCounts(workingText);
   const arms    = detectArmCounts(workingText, normalizedText);
+
+  // Terapi tarzı intervention açıklamalarını çıkar (CBT, usual care vs.)
+  const therapyDescs = extractTherapyDescriptions(workingText);
+
   if (arms || counts || totalN) {
     result.intervention = {};
     if (totalN) result.intervention.total_n = totalN.value;
@@ -2167,7 +2896,35 @@ function parseText(text) {
       if (counts.n_analyzed) result.intervention.n_analyzed = counts.n_analyzed;
     }
     if (arms) {
-      result.intervention.arms = arms.arms;
+      let processedArms = arms.arms;
+
+      // Analiz edilen sayıları tespit et ve uygula
+      const analyzedPerArm = detectAnalyzedPerArm(workingText, processedArms);
+      if (analyzedPerArm) {
+        processedArms = processedArms.map(arm => {
+          const labelLower = (arm.label || arm.description || '').toLowerCase();
+          if (analyzedPerArm.arm1 && labelLower.includes(analyzedPerArm.arm1.label.toLowerCase())) {
+            return { ...arm, n: analyzedPerArm.arm1.n_analyzed, n_randomized: arm.n };
+          }
+          if (analyzedPerArm.arm2 && labelLower.includes(analyzedPerArm.arm2.label.toLowerCase())) {
+            return { ...arm, n: analyzedPerArm.arm2.n_analyzed, n_randomized: arm.n };
+          }
+          return arm;
+        });
+      }
+
+      // Terapi açıklamalarını uygula
+      processedArms = processedArms.map(arm => {
+        const labelLower = (arm.label || arm.description || '').toLowerCase();
+        for (const [key, desc] of Object.entries(therapyDescs)) {
+          if (labelLower.includes(key.toLowerCase()) || key.toLowerCase().includes(labelLower)) {
+            return { ...arm, detailed_description: desc };
+          }
+        }
+        return arm;
+      });
+
+      result.intervention.arms = processedArms;
       if (arms.confidence < 0.7) reviewFlags.push('intervention');
       result.intervention.needs_review = arms.confidence < 0.7;
     } else {

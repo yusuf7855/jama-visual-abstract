@@ -1692,8 +1692,16 @@ function renderVA(data) {
   if (data.title_raw)   unph('va-title-text', ' ' + data.title_raw);
 
   const p = data.population || {};
-  if (p.n_male != null && p.n_female != null)
-    unph('va-pop-count', p.n_male + ' Men, ' + p.n_female + ' Women');
+  if (p.n_male != null && p.n_female != null) {
+    // Kural: Eğer bir cinsiyet 0 ise sadece diğerini göster
+    if (p.n_male === 0) {
+      unph('va-pop-count', p.n_female + ' Female');
+    } else if (p.n_female === 0) {
+      unph('va-pop-count', p.n_male + ' Male');
+    } else {
+      unph('va-pop-count', p.n_male + ' Men, ' + p.n_female + ' Women');
+    }
+  }
   const popIconEl = document.getElementById('pop-illus');
   if (popIconEl) popIconEl.innerHTML = selectPopIcon(data);
   if (p.description) unph('va-pop-desc', p.description);
@@ -2327,8 +2335,14 @@ async function processRawText(text) {
     setStatus('Paket yüklenemedi (JamaVA undefined). dist/ build yapıldı mı?', 'error');
     return;
   }
+  // Debug: PDF metnini global değişkene kaydet
+  window.lastParsedText = text;
+  console.log('[DEBUG] Extracted text (first 3000 chars):', text.substring(0, 3000));
+
   let studyData = JamaVA.parseText(text);
-  console.log('[DEBUG] parseText title_raw:', studyData.title_raw);
+  console.log('[DEBUG] parseText result:', JSON.stringify(studyData, null, 2).substring(0, 2000));
+  console.log('[DEBUG] Population:', studyData.population);
+  console.log('[DEBUG] Intervention:', studyData.intervention);
 
   // Block enrichment: title, settings, primary_outcome içeriklerini iyileştir
   try {
